@@ -1,0 +1,1 @@
+<resources><string name="projection_description">在系统桌面或亮着的锁屏界面，按铰链角度显示实时玻璃投影，模糊强度和切屏角度可在应用内调整。画面仅在内存中处理，不保存或上传，不读取陀螺仪。息屏或进入其他应用时停止，不改变解锁方式。</string></resources>

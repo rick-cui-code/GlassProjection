@@ -1,0 +1,36 @@
+package io.github.sixzleo.tabfold.projection;
+import android.content.*;
+import android.database.Cursor;
+import android.net.Uri;
+import android.os.*;
+
+public final class ProjectionProvider extends ContentProvider {
+    public boolean onCreate(){AnimationSettings.init(getContext());return true;}
+    @Override public Bundle call(String method,String arg,Bundle extras){
+        if(Binder.getCallingUid()!=2000 && Binder.getCallingUid()!=android.os.Process.myUid())throw new SecurityException("Own app or ADB shell only");
+        Bundle b=new Bundle();
+        if("mirror-live".equals(method)){return ProjectionService.mirrorLive(!"0".equals(arg));}
+        if("mirror-preview".equals(method)){ProjectionService.mirrorTest(arg==null?15:Integer.parseInt(arg));return b;}
+        if("mirror-lease".equals(method)){return ProjectionService.mirrorLease();}
+        if("mirror-observe".equals(method)){ProjectionService.mirrorObserve(arg==null?30:Integer.parseInt(arg));return b;}
+        if("mirror-fold".equals(method)){ProjectionService.mirrorFoldTest(arg==null?55:Integer.parseInt(arg));return b;}
+        if("mirror-frame".equals(method)){return ProjectionService.mirrorFrame();}
+        if("desktop-disable".equals(method)){ProjectionService.stop();return b;}
+        if("desktop-telemetry".equals(method)) {
+            ProjectionService.helperAt=SystemClock.uptimeMillis();
+            b.putLong("updatedAt",ProjectionService.updatedAt);b.putBoolean("allowed",ProjectionService.allowed);
+            b.putBoolean("primaryInner",ProjectionService.primaryInner);b.putFloat("angle",ProjectionService.hinge);
+            b.putBoolean("lockScreen",ProjectionService.lockScreen);
+            b.putBoolean("standby",ProjectionService.standby);
+            b.putInt("openAngle",AnimationSettings.openAngle);b.putInt("closeAngle",AnimationSettings.closeAngle);
+            b.putFloat("blurStrength",AnimationSettings.blurPercent/100f);
+            b.putString("status",ProjectionService.status);return b;
+        }
+        throw new IllegalArgumentException("Unknown method");
+    }
+    public Cursor query(Uri u,String[] p,String s,String[] a,String o){return null;}
+    public String getType(Uri u){return null;}
+    public Uri insert(Uri u,ContentValues v){throw new UnsupportedOperationException();}
+    public int delete(Uri u,String s,String[] a){throw new UnsupportedOperationException();}
+    public int update(Uri u,ContentValues v,String s,String[] a){throw new UnsupportedOperationException();}
+}

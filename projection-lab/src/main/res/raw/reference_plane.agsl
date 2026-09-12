@@ -1,0 +1,56 @@
+// Independent Android implementation of the documented reference-plane model.
+// Reference: Ocisly14/iphone_duo/docs/rendering-design.md, commit 1849d8e.
+uniform shader layer0;
+uniform shader layer1;
+uniform shader layer2;
+uniform shader layer3;
+uniform shader layer4;
+uniform shader layer5;
+uniform shader layer6;
+uniform shader layer7;
+uniform float2 size;
+uniform float inner;
+uniform float tilt;
+uniform float enabled;
+uniform float diagnostic;
+const float PAD=288.0;
+float3 linearize(float3 c) {
+    return mix(c/12.92,pow((c+0.055)/1.055,float3(2.4)),step(float3(0.04045),c));
+}
+float3 encode(float3 c) {
+    return mix(c*12.92,1.055*pow(max(c,float3(0)),float3(1.0/2.4))-0.055,step(float3(0.0031308),c));
+}
+half4 varianceMix(half4 a,half4 b,float sigma,float lo,float hi) {
+    float w=clamp((sigma*sigma-lo*lo)/(hi*hi-lo*lo),0.0,1.0);
+    return half4(encode(mix(linearize(float3(a.rgb)),linearize(float3(b.rgb)),w)),1);
+}
+half4 blurred(float2 uv,float sigma) {
+    float2 p=clamp(uv,float2(-PAD),size+PAD-1.0)+PAD+0.5;
+    if(sigma<=0.001) return layer0.eval(p);
+    if(sigma<=1.5) return varianceMix(layer0.eval(p),layer1.eval(p),sigma,0,1.5);
+    if(sigma<=3.0) return varianceMix(layer1.eval(p),layer2.eval(p),sigma,1.5,3);
+    if(sigma<=6.0) return varianceMix(layer2.eval(p),layer3.eval(p),sigma,3,6);
+    if(sigma<=12.0) return varianceMix(layer3.eval(p),layer4.eval(p),sigma,6,12);
+    if(sigma<=24.0) return varianceMix(layer4.eval(p),layer5.eval(p),sigma,12,24);
+    if(sigma<=48.0) return varianceMix(layer5.eval(p),layer6.eval(p),sigma,24,48);
+    return varianceMix(layer6.eval(p),layer7.eval(p),sigma,48,96);
+}
+half4 main(float2 pixel) {
+    float2 uv=clamp(pixel,float2(0.5),size-0.5);
+    if(enabled<0.5 || (inner>0.5 && uv.x>=size.x*0.5)) return blurred(uv-0.5,0);
+    float W=inner>0.5?0.146:0.073;
+    float x=(uv.x/size.x-(inner>0.5?0.5:0.0))*W;
+    float y=(uv.y/size.y-0.5)*0.16;
+    float3 P=float3(x*cos(tilt),y,abs(x)*sin(tilt));
+    float3 eye=float3(inner>0.5?0.0:0.0365,0,0.6);
+    float3 D=normalize(P-eye);
+    float t=-P.z/min(D.z,-0.0001);
+    float3 Q=P+t*D;
+    // Reference gains are specified in 1536/768-wide source pixels. Our
+    // textures are two thirds that size, so preserve the relative footprint.
+    float sourceScale=size.x/(inner>0.5?1536.0:768.0);
+    float sigma=min(96.0,max(t,0.0)*(inner>0.5?1400.0:1000.0))*sourceScale;
+    if(diagnostic>0.5) return half4(half3(sigma/(96.0*sourceScale)),1);
+    float2 samplePoint=float2((Q.x/W+(inner>0.5?0.5:0.0))*size.x,(Q.y/0.16+0.5)*size.y);
+    return blurred(samplePoint-0.5,sigma);
+}

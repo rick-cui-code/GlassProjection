@@ -1,0 +1,95 @@
+# 玻璃投影 · GlassProjection
+
+为小米折叠屏制作的玻璃开合动画：把屏幕想象成正在翻开的玻璃，画面像玻璃下方的一张纸，随着铰链角度产生投影与渐变模糊。
+
+[下载 APK](https://github.com/spideytznn/GlassProjection/releases/latest) · [使用教程](docs/USAGE.zh-CN.md) · [构建与原理](docs/DEVELOPMENT.zh-CN.md) · [开源许可](LICENSE)
+
+**当前版本：0.3.12。需要无障碍权限和以无线调试方式启动的 Shizuku，无需 root，也无需电脑持续连接。**
+
+> 这是针对特定小米折叠屏调试的实验性实现，不是通用折叠屏插件。当前仅在 Xiaomi `2608BPX34C / lhasa`、Android 17 / HyperOS 4.0.11.0 上验证。其他型号、系统版本、屏幕尺寸与设备状态编号可能不同，不应假定直接兼容。
+
+## 功能
+
+- **实时桌面投影**：使用系统画面的实时镜像，动态桌面内容可以持续更新。
+- **内外屏分别处理**：内屏只处理左半屏，右半屏保留原画面；外屏有对应的开合效果。
+- **随距离变化的模糊**：包含黑色边缘的柔和过渡；模糊强度可调。
+- **自定义切屏角度**：展开和合拢分别设置，支持中途反向开合。
+- **桌面与亮屏锁屏**：根据当前场景启用，离开支持场景后释放效果和切屏覆盖。
+- **手机端助手**：通过 Shizuku 启动及恢复渲染、切屏控制进程。
+- **后台运行**：设置页不显示在最近任务中，退出设置页不会暂停动画。
+
+当前没有陀螺仪或眼睛追踪。透视变化来自铰链角度。渲染请求 120 Hz，实际帧率受系统、GPU、温度与屏幕刷新率影响。
+
+## 安装与使用
+
+1. 从 [Releases](https://github.com/spideytznn/GlassProjection/releases) 下载 `GlassProjection-0.3.12.apk` 并安装。
+2. 安装 [Shizuku](https://shizuku.rikka.app/)，按其[官方教程](https://shizuku.rikka.app/guide/setup/)开启开发者选项、USB 调试和无线调试，在手机上完成配对并启动服务。小米还需要开启单独的 **USB 调试（安全设置）**。
+3. 打开桌面的 **玻璃投影**，点 **连接 / 授权 Shizuku**，允许本应用使用 Shizuku。本版本使用 ADB / shell 模式，不支持 Shizuku 的 root 启动模式。
+4. 点 **开启桌面服务**，在系统无障碍设置里开启 **参考平面桌面动画**。如果系统提示“受限设置”，按系统提供的应用信息入口允许后再开启。
+5. 为玻璃投影开启 **自启动**、将省电策略设为 **无限制**，并加入小米的 **后台锁定 / 清理保护**。Shizuku 也应允许后台运行。
+6. 返回应用，确认显示 **动画已就绪**，再回到系统桌面，从完全合拢开始缓慢展开、合拢体验。
+
+若安装过早期「折叠玻璃」或其他桌面开合实验应用，请先关闭它们的无障碍服务，避免叠加。
+
+| 设置 | 默认值 | 可调范围 |
+| --- | --- | --- |
+| 模糊强度 | 100% | 0–200% |
+| 展开时切到内屏 | 60° | 10–170° |
+| 合拢时切到外屏 | 120° | 10–170° |
+
+0° 表示合拢，180° 表示展开。设置会自动保存。0% 模糊仍保留投影几何；若要完全停用，点击 **暂停动画**。暂停会关闭本应用的无障碍服务，并释放自定义切屏请求，让系统恢复自己的切屏策略。
+
+更多说明见 [使用教程与故障排查](docs/USAGE.zh-CN.md)。
+
+## 后台与重启
+
+- **退出玻璃投影或 Shizuku 的界面**：不会主动停止后台动画。
+- **一键清理**：测试设备在配置自启动、无限制省电和后台锁定后已验证继续运行；不保证其他系统的清理策略相同。
+- **强行停止应用、关闭无障碍或停止 Shizuku 服务**：不能保证动画继续运行，需手动恢复对应服务。
+- **重启手机**：无 root 方案需要重新在手机上启动 Shizuku，再检查本应用无障碍状态。
+
+本项目不会偷偷重新打开用户主动关闭的无障碍服务，也不承诺“永不被杀”。
+
+## 已知限制
+
+- 使用 Android 隐藏接口和设备特定的显示状态，系统升级可能影响兼容性。当前固定输出画布、方向映射与状态编号需要针对其他设备重新适配。
+- 保留系统单屏切换路线，没有启用内外屏常亮或双屏镜像桌面。
+- 内屏的“先出现原画面再套动画”已在测试设备上改善；外屏切换时仍可能短暂出现系统交接中的另一页画面，尚未彻底解决。
+- 不对 DRM、安全窗口或其他禁止捕获的画面承诺投影能力；锁屏支持仅指测试设备上可取得的亮屏锁屏画面。
+- 持续镜像和 GPU 模糊会增加耗电、发热。普通应用内不提供全局动画效果。
+
+## 从源码构建
+
+需要 JDK 17、Android SDK Platform 35、Build Tools 35.0.0；项目内置 Gradle 8.7 Wrapper。
+
+```sh
+git clone https://github.com/spideytznn/GlassProjection.git
+cd GlassProjection
+# 配置 JAVA_HOME 和 ANDROID_HOME，或为 Gradle 配置 local.properties 中的 sdk.dir
+./gradlew :projection-lab:assembleDebug :projection-lab:lintDebug
+```
+
+Windows 使用 `gradlew.bat`。产物位于：
+
+```text
+projection-lab/build/outputs/apk/debug/projection-lab-debug.apk
+```
+
+仓库包含两份经过实机验证的助手 DEX 及其完整 Java 源码。修改 `tools/helpers/` 后，须先运行 `python tools/build_helpers.py` 更新内置 DEX，再构建 APK。`python tools/build_helpers.py --check` 可以校验源码重建结果；`python tools/test_models.py` 运行几何、场景和切屏方向测试。
+
+**v0.3.12 Release 附件是已经安装并验证的原始 APK，采用 debug 构建签名。** 这次发布未重新签名或替换二进制。自己构建的 debug APK 通常使用不同密钥，可能无法直接覆盖安装 Release。仓库不提供私钥或本机调试密钥。详见[构建说明](docs/DEVELOPMENT.zh-CN.md)。
+
+## 隐私与权限
+
+应用没有声明网络权限，没有账号、广告、分析或上传服务。画面在手机本地处理；当前默认实时路径不建立桌面分页截图缓存。仓库中的 PNG 是原创编号测试图，不是用户桌面截图。
+
+无障碍用于桌面/锁屏场景判断、铰链协调和显示动画覆盖层；保留的兼容路径使用系统截图能力。Shizuku 用于启动有 shell 权限的实时镜像与设备状态控制助手。诊断入口、可生成的本地诊断图片和权限边界见[开发说明](docs/DEVELOPMENT.zh-CN.md)。
+
+## 致谢与许可
+
+- [6ZLeo/TabFold](https://github.com/6ZLeo/TabFold)：项目探索的起点。保留上游 MIT 版权声明；本仓库单独整理目前的玻璃投影模块，不包含旧「折叠玻璃」应用。
+- [Ocisly14/iphone_duo](https://github.com/Ocisly14/iphone_duo)：参考平面投影与距离模糊的视觉、数学思路。Android 实现独立编写，未分发其 Blender 模型、脚本、壁纸或演示视频。
+- [ajaxjiang96/FoldDepth](https://github.com/ajaxjiang96/FoldDepth)：早期开合效果的视觉参考。
+- [Shizuku](https://github.com/RikkaApps/Shizuku-API)：手机端 shell 权限桥接。
+
+本项目代码采用 [MIT License](LICENSE)，第三方声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。这是社区独立实验，与 Apple、小米或上述参考项目没有官方合作关系。
