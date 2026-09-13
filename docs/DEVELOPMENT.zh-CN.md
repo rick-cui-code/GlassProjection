@@ -37,17 +37,17 @@ Windows 使用 `gradlew.bat`。Python 脚本仅需 Python 3.10+ 标准库。`--c
 
 ## 当前 Release 的二进制来源
 
-v0.3.15 发布当前已安装、已验证的 debug APK，不重新签名。SHA-256：
+v0.3.16 发布当前已安装、已验证的 debug APK，不重新签名。SHA-256：
 
 ```text
-2a2a0ed8997abbd98baabe067b7cad682f8a2a94d1cf8242b02b8ab5abe58594  GlassProjection-0.3.15.apk
+e26d713a62955bde52f7cd486d753425d9a0f8399602e43f616f6f1a08892f29  GlassProjection-0.3.16.apk
 8e75e0a5acac99c53162cb59432f24c23adfe1dad217059de3a5a73d39a84f3d  live.dex
 2da8789e5157c684c6e4a594b673425411850e43c413df3be0a2a458fcbea470  controller.dex
 ```
 
-`python tools/audit_publication.py --apk dist/GlassProjection-0.3.15.apk` 扫描待发布文件，并比较附件与本机构建的运行时代码、资源和清单。APK ZIP 时间戳、构建环境及签名密钥会影响整包字节；不承诺不同机器重建的 APK 与附件逐字节相同。私钥不纳入 Git。
+`python tools/audit_publication.py --apk dist/GlassProjection-0.3.16.apk` 扫描待发布文件，并比较附件与本机构建的运行时代码、资源和清单。APK ZIP 时间戳、构建环境及签名密钥会影响整包字节；不承诺不同机器重建的 APK 与附件逐字节相同。私钥不纳入 Git。
 
-早期 v0.3.12 Release 保持原样；当前变更包括全局范围、悬停恢复、真实手指滑动恢复和助手重连处理。详见[恢复选项](RESTORE-OPTIONS.zh-CN.md)。
+早期 v0.3.12 Release 保持原样；v0.3.16 统一无障碍服务名称为「玻璃投影」，同步应用提示与使用教程；保留此前的全局范围、悬停恢复、真实手指滑动恢复及按钮反馈。详见[恢复选项](RESTORE-OPTIONS.zh-CN.md)。
 
 ## 运行路径
 

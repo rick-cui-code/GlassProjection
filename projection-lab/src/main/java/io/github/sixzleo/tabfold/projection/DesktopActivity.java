@@ -84,7 +84,7 @@ public final class DesktopActivity extends Activity {
         boolean ready=enabled&&SystemClock.uptimeMillis()-ProjectionService.helperAt<3000;
         state.setText(ready?"●  动画已就绪":enabled?"○  等待连接":"○  动画已暂停");
         String scope=AnimationSettings.globalEnabled?"已全局启用。":"在桌面或亮屏锁屏界面，展开或合拢手机即可体验。";
-        hint.setText(ready?scope+"半折悬停 "+AnimationSettings.holdSeconds+" 秒后恢复正常画面。":enabled?MobileHelper.message:"开启「参考平面桌面动画」后即可使用。");
+        hint.setText(ready?scope+"半折悬停 "+AnimationSettings.holdSeconds+" 秒后恢复正常画面。":enabled?MobileHelper.message:"开启「"+getString(R.string.app_name)+"」无障碍服务后即可使用。");
         if(mobileStatus!=null)mobileStatus.setText(MobileHelper.message);
         service.setText(enabled?"管理桌面服务":"开启桌面服务");
     }

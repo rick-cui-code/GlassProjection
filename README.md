@@ -4,7 +4,7 @@
 
 [下载 APK](https://github.com/spideytznn/GlassProjection/releases/latest) · [使用教程](docs/USAGE.zh-CN.md) · [构建与原理](docs/DEVELOPMENT.zh-CN.md) · [开源许可](LICENSE)
 
-**当前版本：0.3.15。需要无障碍权限和以无线调试方式启动的 Shizuku，无需 root，也无需电脑持续连接。**
+**当前版本：0.3.16。需要无障碍权限和以无线调试方式启动的 Shizuku，无需 root，也无需电脑持续连接。**
 
 > 这是针对特定小米折叠屏调试的实验性实现，不是通用折叠屏插件。当前仅在 Xiaomi `2608BPX34C / lhasa`、Android 17 / HyperOS 4.0.11.0 上验证。其他型号、系统版本、屏幕尺寸与设备状态编号可能不同，不应假定直接兼容。
 
@@ -24,10 +24,10 @@
 
 ## 安装与使用
 
-1. 从 [Releases](https://github.com/spideytznn/GlassProjection/releases) 下载 `GlassProjection-0.3.15.apk` 并安装。
+1. 从 [Releases](https://github.com/spideytznn/GlassProjection/releases) 下载 `GlassProjection-0.3.16.apk` 并安装。
 2. 安装 [Shizuku](https://shizuku.rikka.app/)，按其[官方教程](https://shizuku.rikka.app/guide/setup/)开启开发者选项、USB 调试和无线调试，在手机上完成配对并启动服务。小米还需要开启单独的 **USB 调试（安全设置）**。
 3. 打开桌面的 **玻璃投影**，点 **连接 / 授权 Shizuku**，允许本应用使用 Shizuku。本版本使用 ADB / shell 模式，不支持 Shizuku 的 root 启动模式。
-4. 点 **开启桌面服务**，在系统无障碍设置里开启 **参考平面桌面动画**。如果系统提示“受限设置”，按系统提供的应用信息入口允许后再开启。
+4. 点 **开启桌面服务**，在系统无障碍设置里开启 **玻璃投影**。如果系统提示“受限设置”，按系统提供的应用信息入口允许后再开启。
 5. 为玻璃投影开启 **自启动**、将省电策略设为 **无限制**，并加入小米的 **后台锁定 / 清理保护**。Shizuku 也应允许后台运行。
 6. 返回应用，确认显示 **动画已就绪**，再回到系统桌面，从完全合拢开始缓慢展开、合拢体验。
 
@@ -85,7 +85,7 @@ projection-lab/build/outputs/apk/debug/projection-lab-debug.apk
 
 仓库包含两份经过实机验证的助手 DEX 及其完整 Java 源码。修改 `tools/helpers/` 后，须先运行 `python tools/build_helpers.py` 更新内置 DEX，再构建 APK。`python tools/build_helpers.py --check` 可以校验源码重建结果；`python tools/test_models.py` 运行几何、场景和切屏方向测试。
 
-**v0.3.15 Release 附件是当前已安装并验证的 APK，采用 debug 构建签名。** 发布时不重新签名，附件提供 SHA-256 校验值。自己构建的 debug APK 通常使用不同密钥，可能无法直接覆盖安装 Release。仓库不提供私钥或本机调试密钥。详见[构建说明](docs/DEVELOPMENT.zh-CN.md)。
+**v0.3.16 Release 附件是当前已安装并验证的 APK，采用 debug 构建签名。** 发布时不重新签名，附件提供 SHA-256 校验值。自己构建的 debug APK 通常使用不同密钥，可能无法直接覆盖安装 Release。仓库不提供私钥或本机调试密钥。详见[构建说明](docs/DEVELOPMENT.zh-CN.md)。
 
 ## 隐私与权限
 

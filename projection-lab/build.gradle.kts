@@ -7,8 +7,8 @@ android {
         applicationId = "io.github.sixzleo.tabfold.projection"
         minSdk = 33
         targetSdk = 35
-        versionCode = 26
-        versionName = "0.3.15-finger-restore"
+        versionCode = 27
+        versionName = "0.3.16-service-name"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
