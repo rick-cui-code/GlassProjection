@@ -15,6 +15,8 @@ public final class ProjectionProvider extends ContentProvider {
         if("mirror-observe".equals(method)){ProjectionService.mirrorObserve(arg==null?30:Integer.parseInt(arg));return b;}
         if("mirror-fold".equals(method)){ProjectionService.mirrorFoldTest(arg==null?55:Integer.parseInt(arg));return b;}
         if("mirror-frame".equals(method)){return ProjectionService.mirrorFrame();}
+        if("mirror-blackout-prepared".equals(method)){ProjectionService.prepareBlackout(Long.parseLong(arg));return b;}
+        if("mirror-cover-content-ready".equals(method)){ProjectionService.markCoverReady(arg);return b;}
         if("desktop-disable".equals(method)){ProjectionService.stop();return b;}
         if("desktop-telemetry".equals(method)) {
             ProjectionService.helperAt=SystemClock.uptimeMillis();
@@ -25,6 +27,7 @@ public final class ProjectionProvider extends ContentProvider {
             b.putInt("openAngle",AnimationSettings.openAngle);b.putInt("closeAngle",AnimationSettings.closeAngle);
             b.putInt("startAngle",AnimationSettings.startAngle);
             b.putFloat("blurStrength",AnimationSettings.blurPercent/100f);
+            b.putInt("stretchPercent",AnimationSettings.stretchPercent);
             b.putString("status",ProjectionService.status);return b;
         }
         throw new IllegalArgumentException("Unknown method");

@@ -32,6 +32,9 @@ final class ProjectionRenderer {
                 }
                 shader.setFloatUniform("size",panel==0?512:1024,panel==0?752:724);
                 shader.setFloatUniform("inner",panel);
+                shader.setFloatUniform("spillFraction",ProjectionMath.INNER_SPILL_FRACTION);
+                shader.setFloatUniform("hingeDistanceFraction",ProjectionMath.OUTER_HINGE_DISTANCE_FRACTION);
+                shader.setFloatUniform("liveBackdrop",0);
             }
         } catch(IOException|RuntimeException error) { close();throw error; }
     }
@@ -46,6 +49,7 @@ final class ProjectionRenderer {
         canvas.scale(cw/(inner?1024:512),ch/(inner?724:752));
         RuntimeShader shader=shaders[inner?1:0];
         shader.setFloatUniform("tilt",(float)Math.toRadians(ProjectionMath.tilt(angle,inner)));
+        shader.setFloatUniform("crop",ProjectionMath.cropFraction(angle,inner,AnimationSettings.stretchPercent));
         shader.setFloatUniform("enabled",enabled?1:0);
         shader.setFloatUniform("diagnostic",diagnostic?1:0);
         paint.setShader(shader);

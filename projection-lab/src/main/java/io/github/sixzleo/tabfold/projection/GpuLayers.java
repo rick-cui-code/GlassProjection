@@ -38,12 +38,16 @@ final class GpuLayers implements AutoCloseable {
         try {
             Matrix inverse=new Matrix();
             screenMatrix(screenshot.getWidth(),screenshot.getHeight(),inner,rotation,w,h).invert(inverse);
+            BitmapShader extended=new BitmapShader(screenshot,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);
+            extended.setLocalMatrix(inverse);
+            Paint sourcePaint=new Paint(Paint.FILTER_BITMAP_FLAG);sourcePaint.setShader(extended);
             for(int i=0;i<8;i++) {
                 RenderNode tile=new RenderNode("ReferencePlane-sigma-"+i);tiles[i]=tile;
                 tile.setPosition((i%2)*pw,(i/2)*ph,(i%2+1)*pw,(i/2+1)*ph);
                 RecordingCanvas canvas=tile.beginRecording();
-                canvas.drawColor(Color.BLACK);canvas.translate(PAD,PAD);canvas.concat(inverse);
-                canvas.drawBitmap(screenshot,null,new Rect(0,0,screenshot.getWidth(),screenshot.getHeight()),new Paint(Paint.FILTER_BITMAP_FLAG));
+                canvas.drawColor(Color.BLACK);canvas.translate(PAD,PAD);
+                // Clamp horizontally in canonical coordinates; vertical padding stays black.
+                canvas.drawRect(-PAD,0,w+PAD,h,sourcePaint);
                 tile.endRecording();
                 RenderEffect effect=null;
                 if(i>0) {

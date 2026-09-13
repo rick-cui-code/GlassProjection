@@ -20,7 +20,7 @@ public final class ProjectionActivity extends Activity implements SensorEventLis
     private int frames;
     private final Handler handler=new Handler(Looper.getMainLooper());
     @Override public void onCreate(Bundle saved) {
-        super.onCreate(saved);
+        super.onCreate(saved);AnimationSettings.init(this);
         getWindow().setDecorFitsSystemWindows(false);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         WindowManager.LayoutParams params=getWindow().getAttributes();

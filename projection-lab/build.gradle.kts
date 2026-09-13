@@ -7,8 +7,8 @@ android {
         applicationId = "io.github.sixzleo.tabfold.projection"
         minSdk = 33
         targetSdk = 35
-        versionCode = 30
-        versionName = "0.3.19-contact-close"
+        versionCode = 54
+        versionName = "0.3.43-pre-switch-fade"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

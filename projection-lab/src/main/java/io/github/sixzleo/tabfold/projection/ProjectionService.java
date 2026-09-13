@@ -47,7 +47,34 @@ public final class ProjectionService extends AccessibilityService implements Sen
     private long liveUntil;
     private long mirrorObserveUntil;
     private String mirrorScene="";
+    private final ProjectionSceneTiming entryTiming=new ProjectionSceneTiming();
+    private long entrySceneStarted(int width,int height,int rotation,boolean inner){
+        return entryTiming.observe(width,height,rotation,inner,SystemClock.uptimeMillis());
+    }
     private boolean mirrorFold;
+    private final ScreenFade screenFade=new ScreenFade();
+    private volatile long coverToken,coverStarted;
+    private volatile boolean coverBacking,screenFadeActive;
+    private volatile float screenDarkness,screenFadeFrom;
+    private volatile long screenFadeAt;
+    private volatile int screenFadeMode;
+    static void prepareBlackout(long id){ProjectionService s=instance;if(s!=null)s.main.post(()->{
+        if(s.mirrorPreview!=null){s.mirrorPreview.prepareBlackout(id);s.mirrorPreview.setBlackout(s.coverBacking);}
+    });}
+    static void markCoverReady(String request){ProjectionService s=instance;if(s!=null)s.main.post(()->{
+        if(request==null)return;
+        int split=request.indexOf(':');if(split<0)return;
+        long token;try{token=Long.parseLong(request.substring(0,split));}catch(NumberFormatException e){return;}
+        Display d=s.displays.getDisplay(0);if(d==null||d.getState()!=Display.STATE_ON)return;
+        Point p=new Point();d.getRealSize(p);
+        String key=p.x+"x"+p.y+":"+d.getRotation()+":"+inner(d);
+        if(!key.equals(request.substring(split+1)))return;
+        if(s.screenFade.contentReady(token,SystemClock.uptimeMillis())){
+            s.coverToken=0;
+            // No visibility change here: the animation draws above a persistent black base.
+            Log.i("ProjectionContinuity","COVER_CONTENT_READY backingRetained=true elapsedMs="+(SystemClock.uptimeMillis()-s.coverStarted));
+        }
+    });}
     static Bundle mirrorLive(boolean renew){
         Bundle result=new Bundle();ProjectionService s=instance;result.putBoolean("service",s!=null);
         if(s!=null)s.main.post(()->{
@@ -66,10 +93,20 @@ public final class ProjectionService extends AccessibilityService implements Sen
         if(s==null)return b;
         Display d=s.displays.getDisplay(0);if(d==null)return b;Point p=new Point();d.getRealSize(p);
         b.putBoolean("alive",s.mirrorPreview!=null&&SystemClock.uptimeMillis()<s.mirrorUntil);
-        b.putBoolean("allowed",allowed);b.putBoolean("inner",primaryInner);b.putInt("rotation",d.getRotation());
+        boolean inner=inner(d);int rotation=d.getRotation();
+        b.putBoolean("allowed",allowed);b.putBoolean("inner",inner);b.putInt("rotation",rotation);
+        b.putLong("sceneStartedAt",s.entrySceneStarted(p.x,p.y,rotation,inner));
         b.putBoolean("standby",standby);
+        b.putLong("coverToken",s.coverToken);b.putLong("coverStartedAt",s.coverStarted);b.putBoolean("coverBacking",s.coverBacking);
+        b.putBoolean("screenFadeActive",s.screenFadeActive);b.putFloat("screenDarkness",s.screenDarkness);
+        b.putInt("screenFadeMode",s.screenFadeMode);b.putLong("screenFadeAt",s.screenFadeAt);b.putFloat("screenFadeFrom",s.screenFadeFrom);
+        Display.Mode mode=d.getMode();
+        int expectedWidth=rotation%2==0?mode.getPhysicalWidth():mode.getPhysicalHeight();
+        int expectedHeight=rotation%2==0?mode.getPhysicalHeight():mode.getPhysicalWidth();
+        b.putBoolean("geometryValid",p.x==expectedWidth&&p.y==expectedHeight);
         b.putBoolean("foldHeld",s.foldHeld);
         b.putFloat("blurStrength",AnimationSettings.blurPercent/100f);
+        b.putInt("stretchPercent",AnimationSettings.stretchPercent);
         b.putInt("startAngle",AnimationSettings.startAngle);
         b.putInt("screenWidth",p.x);b.putInt("screenHeight",p.y);b.putInt("state",d.getState());putFoldPose(b);
         return b;
@@ -163,6 +200,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
         long now=SystemClock.uptimeMillis();boolean global=AnimationSettings.globalEnabled;
         boolean home=!global&&home();if(home)lastHomeAt=now;
         Display d=displays.getDisplay(0);primaryInner=d!=null && inner(d);
+        if(d!=null){Point size=new Point();d.getRealSize(size);entrySceneStarted(size.x,size.y,d.getRotation(),primaryInner);}
         standby=!getSystemService(PowerManager.class).isInteractive();
         boolean locked=getSystemService(KeyguardManager.class).isKeyguardLocked();
         lockScreen=global?locked&&!standby:livePreferred&&lockGate.visible(locked,!standby,locked&&!standby?lockWindowState():0,now);
@@ -170,6 +208,15 @@ public final class ProjectionService extends AccessibilityService implements Sen
         holdGate.configure(AnimationSettings.holdSeconds,AnimationSettings.startAngle);
         boolean held=holdGate.update(now,hinge,allowed);
         if(held!=foldHeld){foldHeld=held;Log.i("ProjectionHold",(held?"RETURN_TO_NORMAL":"FOLLOW_HINGE")+" angle="+hinge);}
+        long oldCoverToken=coverToken;boolean wasFading=screenFadeActive;
+        screenFade.configure(AnimationSettings.openAngle,AnimationSettings.closeAngle);
+        screenFade.update(now,hinge,primaryInner,mirrorFold&&now<mirrorUntil&&allowed&&!standby,held);
+        coverToken=screenFade.token();coverStarted=screenFade.startedAt();
+        coverBacking=screenFade.backing();screenDarkness=screenFade.darkness();screenFadeActive=screenFade.active();
+        screenFadeMode=screenFade.mode();screenFadeAt=screenFade.phaseStartedAt();screenFadeFrom=screenFade.cancelFrom();
+        if(oldCoverToken!=coverToken)Log.i("ProjectionContinuity","SCREEN_FADE token="+coverToken+" inner="+primaryInner+" elapsedMs="+(now-coverStarted));
+        if(wasFading!=screenFadeActive)Log.i("ProjectionContinuity","SCREEN_FADE_ACTIVE "+screenFadeActive+" angle="+hinge+" inner="+primaryInner);
+        if(mirrorPreview!=null)mirrorPreview.setBlackout(coverBacking);
         if(mirrorFold&&now<mirrorUntil&&allowed&&d!=null){
             reset();closeWindow();
             if(mirrorPreview==null&&d.getState()==Display.STATE_ON)mirrorPreview=new MirrorPreview(this,d,true);

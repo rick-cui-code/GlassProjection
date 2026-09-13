@@ -33,20 +33,21 @@ public final class LiveMirrorWindowProbe {
     static final String VERT="attribute vec2 pos; varying vec2 uv; void main(){gl_Position=vec4(pos,0.,1.);uv=vec2((pos.x+1.)*.5,(1.-pos.y)*.5);}";
     static final String FRAG="#extension GL_OES_EGL_image_external : require\nprecision highp float; uniform samplerExternalOES source; uniform mat4 tex; uniform float tilt; varying vec2 uv;\n"
         +"vec3 sampleAt(vec2 p){if(p.x<0.||p.y<0.||p.x>1.||p.y>1.)return vec3(0.);return texture2D(source,(tex*vec4(p.x,1.-p.y,0.,1.)).xy).rgb;}\n"
-        +"void main(){float x=uv.x*.073;float y=(uv.y-.5)*.16;vec3 P=vec3(x*cos(tilt),y,x*sin(tilt));vec3 D=normalize(P-vec3(.0365,0.,.6));float t=-P.z/min(D.z,-.0001);vec3 Q=P+t*D;vec2 q=vec2(Q.x/.073,Q.y/.16+.5);"
+        +"void main(){float x=uv.x*.073;float t=x*sin(tilt);vec2 q=uv;"
         +"float s=min(.008,max(t,0.)*.35);vec3 c=vec3(0.);float wsum=0.;for(int iy=-2;iy<=2;iy++){for(int ix=-2;ix<=2;ix++){float w=exp(-.5*float(ix*ix+iy*iy));c+=pow(sampleAt(q+vec2(float(ix),float(iy)*.4264)*s),vec3(2.2))*w;wsum+=w;}}"
         +"c=pow(c/wsum,vec3(1./2.2));if(uv.x<.006||uv.x>.994||uv.y<.004||uv.y>.996)c=vec3(.1,.9,.8);gl_FragColor=vec4(c,1.);}";
-    static final String FOLD_FRAG="precision highp float;uniform sampler2D level0,level1,level2,level3,level4,level5,level6;uniform float bufferSize,contentScale,canvasSize;uniform float tilt,inner,turn,opacity,blurStrength;uniform vec2 screen;varying vec2 uv;"
+    static final String FOLD_FRAG="precision highp float;uniform sampler2D level0,level1,level2,level3,level4,level5,level6;uniform float bufferSize,contentScale,canvasSize;uniform float tilt,crop,inner,turn,opacity,blurStrength,spillFraction,hingeDistanceFraction,screenDarkness,screenFadeActive;uniform vec2 screen;varying vec2 uv;"
         +"vec2 canonical(vec2 p){if(turn<.5)return p;if(turn<1.5)return vec2(1.-p.y,p.x);if(turn<2.5)return vec2(1.-p.x,1.-p.y);return vec2(p.y,1.-p.x);}"
         +"vec2 toScreen(vec2 p){if(turn<.5)return p;if(turn<1.5)return vec2(p.y,1.-p.x);if(turn<2.5)return vec2(1.-p.x,1.-p.y);return vec2(1.-p.y,p.x);}"
         +"vec3 layer(vec2 p,float l){vec3 c;if(l<.5)c=texture2D(level0,p).rgb;else if(l<1.5)c=texture2D(level1,p).rgb;else if(l<2.5)c=texture2D(level2,p).rgb;else if(l<3.5)c=texture2D(level3,p).rgb;else if(l<4.5)c=texture2D(level4,p).rgb;else if(l<5.5)c=texture2D(level5,p).rgb;else c=texture2D(level6,p).rgb;return pow(c,vec3(2.2));}"
         +"vec3 at(vec2 p,float sigma){p=toScreen(p);vec2 extent=screen/max(screen.x,screen.y);p=(1.-extent)*.5+p*extent;p=(1.-contentScale)*.5+p*contentScale;p.y=1.-p.y;float variance=sigma*sigma;float l=clamp(.5*log2(1.+3.*variance/2.854),0.,6.);float lo=floor(l);float a=2.854*(pow(4.,lo)-1.)/3.;float b=2.854*(pow(4.,min(lo+1.,6.))-1.)/3.;float f=clamp((variance-a)/max(b-a,.0001),0.,1.);return pow(mix(layer(p,lo),layer(p,min(lo+1.,6.)),f),vec3(1./2.2));}"
-        +"void main(){vec2 p=canvasSize>0.?uv*canvasSize/screen:uv;if(p.x>1.||p.y>1.){gl_FragColor=vec4(0.);return;}vec2 u=canonical(p);if(opacity<.001||(inner>.5&&u.x>=.5)){gl_FragColor=vec4(0.);return;}float W=inner>.5?.146:.073;float x=(u.x-(inner>.5?.5:0.))*W;float y=(u.y-.5)*.16;vec3 P=vec3(x*cos(tilt),y,abs(x)*sin(tilt));vec3 D=normalize(P-vec3(inner>.5?0.:.0365,0.,.6));float t=-P.z/min(D.z,-.0001);vec3 Q=P+t*D;vec2 q=vec2(Q.x/W+(inner>.5?.5:0.),Q.y/.16+.5);"
-        +"float s=min(.012,max(t,0.)*(inner>.5?.25:.35));vec2 canonicalSize=mod(turn,2.)<.5?screen:screen.yx;float sigma=s*canonicalSize.x/max(screen.x,screen.y)*bufferSize*contentScale*blurStrength;"
-        +"vec3 c=at(q,sigma);"
-        // Keep interior blur intact; tighten only the inner paper/black boundary.
-        +"if(inner>.5&&sigma>.1){vec2 edge=min(q,vec2(1.)-q)*canonicalSize/max(screen.x,screen.y)*bufferSize*contentScale;float distance=abs(min(edge.x,edge.y));float keep=smoothstep(sigma,3.*sigma,distance);if(keep<.999)c=mix(at(q,sigma*.65),c,keep);}"
-        +"gl_FragColor=vec4(c*opacity,opacity);}";
+        +"vec4 composite(vec3 color,float alpha,vec2 u){if(screenFadeActive>.5)return vec4(mix(at(u,0.),color,alpha)*(1.-screenDarkness),1.);return vec4(color*alpha,alpha);}"
+        +"void main(){if(screenDarkness>.999){gl_FragColor=vec4(0.,0.,0.,1.);return;}vec2 p=canvasSize>0.?uv*canvasSize/screen:uv;if(p.x>1.||p.y>1.){gl_FragColor=vec4(0.);return;}vec2 u=canonical(p);if(opacity<.001){gl_FragColor=composite(vec3(0.),0.,u);return;}float W=inner>.5?.146:.073;float x=(u.x-(inner>.5?.5:0.))*W;float y=(u.y-.5)*.16;float spill=inner>.5?.073*spillFraction*sin(tilt):0.;if(inner>.5&&x>=0.&&(spill<=.000001||x>=spill)){gl_FragColor=composite(vec3(0.),0.,u);return;}float coverage=inner>.5&&x>0.?1.-smoothstep(0.,max(spill,.000001),x):1.;float paperX=inner>.5?min(x,0.):x;vec3 P=vec3(paperX*cos(tilt),y,abs(paperX)*sin(tilt));vec3 D=normalize(P-vec3(inner>.5?0.:.0365,0.,.6));float t=-P.z/min(D.z,-.0001);vec3 Q=P+t*D;vec2 paperQ=vec2(Q.x/W+(inner>.5?.5:0.),Q.y/.16+.5);float a=clamp(abs(x)/.073,0.,1.);vec2 q=inner>.5&&x>=0.?u:vec2((inner>.5?.5:0.)+x*(1.-crop*a)/W,u.y);float blurGap=t;if(inner>.5){float d=max(spill-x,0.)/(1.+spill/.073);vec3 B=vec3(-d*cos(tilt),y,d*sin(tilt));blurGap=length(B-vec3(0.,0.,.6))*B.z/(.6-B.z);}else{float d=.073*hingeDistanceFraction+abs(x)*(1.-hingeDistanceFraction);vec3 B=vec3(d*cos(tilt),y,d*sin(tilt));blurGap=length(B-vec3(.0365,0.,.6))*B.z/(.6-B.z);}"
+        +"float s=min(.03,max(blurGap,0.)*(inner>.5?.55:.75));vec2 canonicalSize=mod(turn,2.)<.5?screen:screen.yx;float sigma=s*canonicalSize.x/max(screen.x,screen.y)*bufferSize*contentScale*blurStrength;"
+        // Only top/bottom contours recede; rounded corners meet the pinned sides.
+        +"vec2 pixelScale=canonicalSize/max(screen.x,screen.y)*bufferSize*contentScale;float edgeY=min(paperQ.y,1.-paperQ.y)*pixelScale.y;float sideDistance=min(u.x,1.-u.x)*pixelScale.x;float leafPixels=.073/W*pixelScale.x;float radius=leafPixels*.055*sin(tilt);float cornerX=max(radius-sideDistance,0.);float cornerInset=radius-sqrt(max(radius*radius-cornerX*cornerX,0.));float boundary=cornerInset-edgeY;"
+        +"float band=max(leafPixels*.18,1.);float inward=max(-boundary,0.)/band;float influence=exp(-.5*inward*inward);float edgeSigma=leafPixels*.025*sin(tilt)*blurStrength*coverage;sigma*=1.4;float baseVariance=sigma*sigma;float edgeVariance=edgeSigma*edgeSigma;float paperSigma=min(62.,sqrt(baseVariance+edgeVariance));sigma=min(62.,sqrt(baseVariance+edgeVariance*influence*influence));vec3 c=at(q,sigma);float feather=max(paperSigma*3.2,.5);float paper=mix(1.,smoothstep(-feather,feather,-boundary),coverage);c*=paper;"
+        +"float alpha=opacity*coverage;gl_FragColor=composite(c,alpha,u);}";
     public static void main(String[] args) {
         try {
             Looper.prepareMainLooper();main=new Handler(Looper.getMainLooper());
@@ -81,8 +82,16 @@ public final class LiveMirrorWindowProbe {
             guardOutput(lease);
             leasedCanvasSize=lease.getInt("canvasSize");
             try(SurfaceControl.Transaction t=new SurfaceControl.Transaction()){
-                SurfaceControl.Transaction.class.getMethod("setSkipScreenshot",SurfaceControl.class,boolean.class).invoke(t,leasedControl,true);t.apply();
+                SurfaceControl.Transaction.class.getMethod("setSkipScreenshot",SurfaceControl.class,boolean.class).invoke(t,leasedControl,true);
+                    SurfaceControl black=lease.getParcelable("blackoutControl");
+                    if(black!=null){
+                        SurfaceControl.Transaction.class.getMethod("setSkipScreenshot",SurfaceControl.class,boolean.class).invoke(t,black,true);
+                        SurfaceControl.Transaction.class.getMethod("setRelativeLayer",SurfaceControl.class,SurfaceControl.class,int.class).invoke(t,black,leasedControl,-1);
+                        black.release();
+                    }
+                    t.apply();
             }
+            call("mirror-blackout-prepared",Long.toString(lease.getLong("blackoutId")));
             final int width=lease.getInt("width"),height=lease.getInt("height");
             new Thread(()->render(leasedOutput,width,height),"mirror-gpu").start();
             main.postDelayed(()->{stopped=true;finish();},durationMs+3000);
@@ -116,8 +125,16 @@ public final class LiveMirrorWindowProbe {
                 guardOutput(lease);
                 leasedCanvasSize=lease.getInt("canvasSize");
                 try(SurfaceControl.Transaction t=new SurfaceControl.Transaction()){
-                    SurfaceControl.Transaction.class.getMethod("setSkipScreenshot",SurfaceControl.class,boolean.class).invoke(t,leasedControl,true);t.apply();
+                    SurfaceControl.Transaction.class.getMethod("setSkipScreenshot",SurfaceControl.class,boolean.class).invoke(t,leasedControl,true);
+                    SurfaceControl black=lease.getParcelable("blackoutControl");
+                    if(black!=null){
+                        SurfaceControl.Transaction.class.getMethod("setSkipScreenshot",SurfaceControl.class,boolean.class).invoke(t,black,true);
+                        SurfaceControl.Transaction.class.getMethod("setRelativeLayer",SurfaceControl.class,SurfaceControl.class,int.class).invoke(t,black,leasedControl,-1);
+                        black.release();
+                    }
+                    t.apply();
                 }
+                call("mirror-blackout-prepared",Long.toString(lease.getLong("blackoutId")));
                 render(leasedOutput,lease.getInt("width"),lease.getInt("height"));
                 releaseOutput();
                 if(failed)break;
@@ -163,45 +180,96 @@ public final class LiveMirrorWindowProbe {
             if(foldMode)pyramid=new LiveBlurPyramid(width,vertices);
             GLES20.glUseProgram(program);
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"canvasSize"),leasedCanvasSize);
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"spillFraction"),io.github.sixzleo.tabfold.projection.ProjectionMath.INNER_SPILL_FRACTION);
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"hingeDistanceFraction"),io.github.sixzleo.tabfold.projection.ProjectionMath.OUTER_HINGE_DISTANCE_FRACTION);
             int pos=GLES20.glGetAttribLocation(program,"pos");GLES20.glEnableVertexAttribArray(pos);GLES20.glVertexAttribPointer(pos,2,GLES20.GL_FLOAT,false,0,vertices);GLES20.glUniform1i(GLES20.glGetUniformLocation(program,"source"),0);GLES20.glViewport(0,0,width,height);
             int frames=0,sourceFrames=0;float[] matrix=new float[16];boolean saved=false,hasTexture=false;
-            long pollAt=0,lastDraw=0;Bundle geometry=null;String previousGeometry="";float eased=Float.NaN;
+            long pollAt=0,lastDraw=0;Bundle geometry=null;String previousGeometry="",previousDisplay="",pyramidGeometry="";float eased=Float.NaN;
             FoldReturnMotion returnMotion=new FoldReturnMotion();
+            io.github.sixzleo.tabfold.projection.ProjectionEntrance entrance=new io.github.sixzleo.tabfold.projection.ProjectionEntrance();
+            io.github.sixzleo.tabfold.projection.CoverLayoutReady coverLayout=new io.github.sixzleo.tabfold.projection.CoverLayoutReady();
+            float previousEntrance=0;
             boolean wasHeld=false,returnComplete=false;
             while(!stopped&&(continuous||SystemClock.uptimeMillis()-start<durationMs)){
                 long now=SystemClock.uptimeMillis();
+                String revealRequest=null;
                 if(continuous)renew();
-                if(ready.getAndSet(false)){
+                if(foldMode){
+                    if(now>=pollAt){long phaseAt=SystemClock.uptimeMillis();geometry=call("mirror-frame",null);pollAt=now+12;logSlowPhase("telemetry",phaseAt);}
+                    if(geometry==null||!geometry.getBoolean("alive")||!geometry.getBoolean("allowed"))break;
+                }
+                boolean sourceChanged=ready.getAndSet(false);
+                if(sourceChanged){
                     if(foldMode)GLES20.glActiveTexture(GLES20.GL_TEXTURE7);
+                    long phaseAt=SystemClock.uptimeMillis();
                     texture.updateTexImage();texture.getTransformMatrix(matrix);hasTexture=true;sourceFrames++;
-                    if(pyramid!=null){pyramid.update(textures[0],matrix);pyramid.bind(program,width,height);}
+                    logSlowPhase("source-frame",phaseAt);
                 }
                 if(!hasTexture){Thread.sleep(2);continue;}
                 if(foldMode){
-                    if(now>=pollAt){geometry=call("mirror-frame",null);pollAt=now+12;}
-                    if(geometry==null||!geometry.getBoolean("alive")||!geometry.getBoolean("allowed"))break;
                     boolean inner=geometry.getBoolean("inner");int rotation=geometry.getInt("rotation"),sw=geometry.getInt("screenWidth"),sh=geometry.getInt("screenHeight");
+                    if(sw<=0||sh<=0)break;
+                    int turn=io.github.sixzleo.tabfold.projection.ProjectionMath.turn(inner,rotation);
+                    String sourceGeometry=sw+"x"+sh+":"+turn;
+                    if(sourceChanged||!sourceGeometry.equals(pyramidGeometry)){
+                        long phaseAt=SystemClock.uptimeMillis();
+                        pyramid.update(textures[0],matrix,sw,sh,turn);pyramid.bind(program,width,height);
+                        logSlowPhase("blur-pyramid",phaseAt);
+                        pyramidGeometry=sourceGeometry;
+                    }
                     float angle=geometry.getFloat("angle",Float.NaN);if(!Float.isFinite(angle))break;
                     boolean physicallyBlocked=geometry.getBoolean("projectionBlocked");
-                    String key=sw+"x"+sh+":"+rotation+":"+inner+":"+geometry.getInt("state");
-                    if(!key.equals(previousGeometry)){System.out.println("OUTPUT_GEOMETRY elapsedMs="+(now-start)+" "+key+" angle="+angle+" frames="+frames);previousGeometry=key;eased=angle;}
-                    float step=lastDraw==0?1:(float)(1-Math.exp(-(now-lastDraw)/28.0));if(physicallyBlocked||!Float.isFinite(eased))eased=angle;eased+=(angle-eased)*step;
-                    float tilt=Math.min(85,Math.max(0,inner?180-eased:eased));
-                    float opacity=io.github.sixzleo.tabfold.projection.ProjectionMath.endpointOpacity(angle,inner,geometry.getInt("startAngle",1),physicallyBlocked);
+                    String key=sw+"x"+sh+":"+rotation+":"+inner;
+                    String displayKey=key+":"+geometry.getInt("state");
+                    now=SystemClock.uptimeMillis();
+                    if(!displayKey.equals(previousDisplay)){
+                        System.out.println("OUTPUT_GEOMETRY elapsedMs="+(now-start)+" "+displayKey+" angle="+angle+" frames="+frames);
+                        previousDisplay=displayKey;
+                    }
+                    boolean sceneChanged=!key.equals(previousGeometry);
+                    if(sceneChanged){previousGeometry=key;eased=angle;}
+                    if(physicallyBlocked||lastDraw==0)eased=angle;
+                    else eased=io.github.sixzleo.tabfold.projection.ProjectionMath.followAngle(eased,angle,now-lastDraw);
+                    int startAngle=geometry.getInt("startAngle",1);
+                    float tilt=io.github.sixzleo.tabfold.projection.ProjectionMath.effectTilt(eased,inner,startAngle,physicallyBlocked);
+                    float opacity=io.github.sixzleo.tabfold.projection.ProjectionMath.endpointOpacity(eased,inner,startAngle,physicallyBlocked);
+                    boolean visible=io.github.sixzleo.tabfold.projection.ProjectionMath.endpointOpacity(angle,inner,startAngle,physicallyBlocked)>0;
+                    long coverToken=geometry.getLong("coverToken");
+                    boolean coverReady=coverLayout.update(now,coverToken,geometry.getLong("coverStartedAt"),
+                        sw+"x"+sh+":"+rotation,geometry.getInt("state")==Display.STATE_ON,
+                        geometry.getBoolean("geometryValid"),sourceChanged,inner?120:450);
+                    float entry;
+                    if(coverToken!=0&&!coverReady){entrance.update(now,false,false);entry=0;}
+                    else if(coverReady){
+                        // Draw directly above the black backing; readiness never removes that layer.
+                        entry=entrance.update(now,visible,true,now-180,inner?180:80);
+                        revealRequest=coverToken+":"+sw+"x"+sh+":"+rotation+":"+inner;
+                    }else entry=entrance.update(now,visible,sceneChanged,geometry.getLong("sceneStartedAt",now),inner?180:80);
+                    if(sceneChanged)System.out.println("HANDOFF_ENTRY sceneAgeMs="+(now-geometry.getLong("sceneStartedAt",now))+" amount="+entry+" state="+geometry.getInt("state"));
+                    if(visible&&entry==0&&(sceneChanged||previousEntrance>0))System.out.println("NEUTRAL_ENTRY angle="+angle);
+                    if(entry==1&&previousEntrance<1)System.out.println("ENTRY_COMPLETE angle="+angle);
+                    previousEntrance=entry;
                     boolean held=geometry.getBoolean("foldHeld");
                     if(held!=wasHeld){System.out.println("HOLD_"+(held?"RETURN_START":"RESUME")+" angle="+angle);wasHeld=held;returnComplete=false;}
                     float amount=returnMotion.update(now,held,physicallyBlocked);
                     if(held&&amount==0&&!returnComplete){System.out.println("HOLD_RETURN_COMPLETE angle="+angle);returnComplete=true;}
                     // Reverse the projection itself; fade only its final, nearly flat frames.
-                    tilt*=amount;
-                    opacity*=FoldReturnMotion.coverage(amount);
+                    tilt*=amount*entry;
+                    opacity*=FoldReturnMotion.coverage(amount)*entry;
                     GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"tilt"),(float)Math.toRadians(tilt));
+                    // Enter from the actual unshifted desktop, then follow linearly.
+                    float crop=io.github.sixzleo.tabfold.projection.ProjectionMath.cropFraction(eased,inner,geometry.getInt("stretchPercent",io.github.sixzleo.tabfold.projection.ProjectionMath.DEFAULT_STRETCH_PERCENT))*amount*entry;
+                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"crop"),crop);
                     GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"inner"),inner?1:0);
                     GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"turn"),inner?(rotation+1)%4:rotation);
                     GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"opacity"),opacity);
                     float strength=geometry.getFloat("blurStrength",1f);
                     GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"blurStrength"),Float.isFinite(strength)?Math.max(0,Math.min(2,strength)):1f);
                     GLES20.glUniform2f(GLES20.glGetUniformLocation(program,"screen"),sw,sh);
+                    float darkness=io.github.sixzleo.tabfold.projection.ScreenFade.sample(now,geometry.getInt("screenFadeMode"),
+                        geometry.getLong("screenFadeAt"),geometry.getFloat("screenDarkness"),geometry.getFloat("screenFadeFrom"));
+                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"screenDarkness"),darkness);
+                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"screenFadeActive"),geometry.getBoolean("screenFadeActive")?1:0);
                 }else{
                     float angle=(float)(.5-.5*Math.cos((now-start)/10000.0*Math.PI*2))*.65f;
                     GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"tilt"),angle);
@@ -213,7 +281,14 @@ public final class LiveMirrorWindowProbe {
                     saveFrame(width,height);System.out.println("CAPTURED_GPU_FRAME "+previousGeometry+" angle="+eased);
                 }}
                 if(!foldMode&&!saved&&SystemClock.uptimeMillis()-start>3000){saveFrame(width,height);saved=true;}
+                long swapAt=SystemClock.uptimeMillis();
                 if(!EGL14.eglSwapBuffers(display,window))throw new IllegalStateException("swap buffers");
+                long swapMs=SystemClock.uptimeMillis()-swapAt;
+                if(swapMs>40)System.out.println("SLOW_PRESENT ms="+swapMs+" "+previousDisplay);
+                if(revealRequest!=null){
+                    call("mirror-cover-content-ready",revealRequest);
+                    System.out.println("COVER_FRAME_READY "+revealRequest+" angle="+eased);
+                }
                 if(frames++==0)System.out.println("FIRST_PREVIEW_FRAME ms="+(SystemClock.uptimeMillis()-start));
             }
             System.out.println("PREVIEW frames="+frames+" sourceFrames="+sourceFrames+" elapsedMs="+(SystemClock.uptimeMillis()-start));
@@ -232,6 +307,10 @@ public final class LiveMirrorWindowProbe {
             if(display!=EGL14.EGL_NO_DISPLAY){EGL14.eglMakeCurrent(display,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_CONTEXT);if(window!=EGL14.EGL_NO_SURFACE)EGL14.eglDestroySurface(display,window);if(context!=EGL14.EGL_NO_CONTEXT)EGL14.eglDestroyContext(display,context);EGL14.eglTerminate(display);}
             if(!continuous)finish();
         }
+    }
+    static void logSlowPhase(String phase,long started){
+        long elapsed=SystemClock.uptimeMillis()-started;
+        if(elapsed>40)System.out.println("SLOW_PHASE "+phase+" ms="+elapsed);
     }
     static void saveFrame(int w,int h)throws Exception {
         ByteBuffer bytes=ByteBuffer.allocateDirect(w*h*4);GLES20.glReadPixels(0,0,w,h,GLES20.GL_RGBA,GLES20.GL_UNSIGNED_BYTE,bytes);

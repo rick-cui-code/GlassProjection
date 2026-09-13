@@ -13,7 +13,10 @@ final class MirrorPreview implements SurfaceHolder.Callback {
     private WindowManager manager;
     private SurfaceControlViewHost host;
     private SurfaceControlViewHost.SurfacePackage hostPackage;
-    private SurfaceControl displayControl;
+    private SurfaceControl displayControl,blackoutControl;
+    private android.graphics.Bitmap blackoutBitmap;
+    private final long blackoutId=android.os.SystemClock.uptimeMillis();
+    private boolean blackoutReady,blackoutVisible;
     private final Binder ownerToken=new Binder();
     private final SurfaceView view;
     private final int width,height,rotation;
@@ -62,6 +65,16 @@ final class MirrorPreview implements SurfaceHolder.Callback {
                     t.setScale(displayControl,2f,2f).setPosition(displayControl,0,0)
                         .setLayer(displayControl,1).setAlpha(displayControl,1f).setVisibility(displayControl,true).apply();
                 }
+                android.graphics.Bitmap pixel=android.graphics.Bitmap.createBitmap(1,1,android.graphics.Bitmap.Config.ARGB_8888);
+                pixel.eraseColor(android.graphics.Color.BLACK);
+                blackoutBitmap=pixel.copy(android.graphics.Bitmap.Config.HARDWARE,false);pixel.recycle();
+                if(blackoutBitmap==null)throw new IllegalStateException("Blackout buffer unavailable");
+                blackoutControl=new SurfaceControl.Builder().setName("Glass cover handoff black")
+                    .setParent(displayControl).setBufferSize(1,1).setOpaque(true).setHidden(true).build();
+                try(android.hardware.HardwareBuffer buffer=blackoutBitmap.getHardwareBuffer();SurfaceControl.Transaction t=new SurfaceControl.Transaction()){
+                    t.setBuffer(blackoutControl,buffer).setScale(blackoutControl,width,height)
+                        .setPosition(blackoutControl,0,0).setLayer(blackoutControl,-1).apply();
+                }
                 ((AccessibilityService)service).attachAccessibilityOverlayToDisplay(display.getDisplayId(),displayControl);
                 android.util.Log.i("ProjectionContinuity","DISPLAY_ATTACHED canvas="+(width*2)+"x"+(height*2));
             }catch(RuntimeException e){close();throw e;}
@@ -74,13 +87,28 @@ final class MirrorPreview implements SurfaceHolder.Callback {
         if(displayControl!=null){b.putParcelable("rootControl",displayControl);b.putBinder("ownerToken",ownerToken);}
         b.putInt("width",width);b.putInt("height",height);b.putInt("rotation",rotation);
         b.putInt("surfaceGeneration",created);
+        if(blackoutControl!=null){b.putParcelable("blackoutControl",blackoutControl);b.putLong("blackoutId",blackoutId);}
         b.putInt("canvasSize",displayAttached?width*2:0);
     }return b;}
+    void prepareBlackout(long id){
+        if(id!=blackoutId||blackoutControl==null)return;
+        // Helper sets the relative layer with its authorized shell API access.
+        blackoutReady=true;
+    }
+    void setBlackout(boolean visible){
+        visible=visible&&blackoutReady;
+        if(blackoutControl==null||!blackoutControl.isValid()||visible==blackoutVisible)return;
+        try(SurfaceControl.Transaction t=new SurfaceControl.Transaction()){t.setVisibility(blackoutControl,visible).apply();}
+        blackoutVisible=visible;
+        android.util.Log.i("ProjectionContinuity","COVER_BLACK "+visible);
+    }
     void close(){
         ready=false;
         if(displayControl!=null&&displayControl.isValid())try(SurfaceControl.Transaction t=new SurfaceControl.Transaction()){
             t.setVisibility(displayControl,false).reparent(displayControl,null).apply();
         }
+        if(blackoutControl!=null){blackoutControl.release();blackoutControl=null;}
+        if(blackoutBitmap!=null){blackoutBitmap.recycle();blackoutBitmap=null;}
         displayControl=null;
         if(host!=null){host.release();host=null;}
         if(hostPackage!=null){hostPackage.release();hostPackage=null;}

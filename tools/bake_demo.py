@@ -56,7 +56,8 @@ def main():
         original=artwork(w,h,role=='inner')
         color=np.array(original,dtype=np.float32)/255
         linear=np.where(color<=.04045,color/12.92,((color+.055)/1.055)**2.4)
-        padded=np.pad(linear,((PAD,PAD),(PAD,PAD),(0,0)))
+        extended=np.pad(linear,((0,0),(PAD,PAD),(0,0)),mode='edge')
+        padded=np.pad(extended,((PAD,PAD),(0,0),(0,0)))
         for i,sigma in enumerate(SIGMAS):
             blurred=padded if sigma==0 else filter_axis(filter_axis(padded,sigma,0),sigma,1)
             blurred=np.maximum(0,blurred)

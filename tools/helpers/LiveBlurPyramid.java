@@ -10,9 +10,9 @@ final class LiveBlurPyramid {
     final int[] levels=new int[LEVELS],scratch=new int[LEVELS],sizes=new int[LEVELS];
     final int framebuffer,copy,blur;
     final FloatBuffer vertices;
-    // Black padding is filtered with the source, so the paper boundary itself
-    // blurs rather than being clipped after filtering. The output stays opaque.
-    static final String COPY="#extension GL_OES_EGL_image_external : require\nprecision highp float;uniform samplerExternalOES source;uniform mat4 tex;uniform float contentScale;varying vec2 uv;void main(){vec2 p=(uv-(1.-contentScale)*.5)/contentScale;if(p.x<0.||p.y<0.||p.x>1.||p.y>1.){gl_FragColor=vec4(0.,0.,0.,1.);return;}gl_FragColor=texture2D(source,(tex*vec4(p.x,1.-p.y,0.,1.)).xy);}";
+    // Extend source colors across the canonical left/right sides before blur.
+    // Only top/bottom retain black padding for the receding paper contour.
+    static final String COPY="#extension GL_OES_EGL_image_external : require\nprecision highp float;uniform samplerExternalOES source;uniform mat4 tex;uniform float contentScale,sourceTexel,horizontalAxis;uniform vec2 screenExtent;varying vec2 uv;void main(){vec2 p=(uv-(1.-contentScale)*.5)/contentScale;vec2 lo=(1.-screenExtent)*.5+sourceTexel;vec2 hi=1.-lo;if(horizontalAxis<.5)p.x=clamp(p.x,lo.x,hi.x);else p.y=clamp(p.y,lo.y,hi.y);if(p.x<0.||p.y<0.||p.x>1.||p.y>1.){gl_FragColor=vec4(0.,0.,0.,1.);return;}gl_FragColor=texture2D(source,(tex*vec4(p.x,1.-p.y,0.,1.)).xy);}";
     static final String BLUR="precision highp float;uniform sampler2D source;uniform vec2 stepSize;varying vec2 uv;"
         +"vec3 read(vec2 p){return pow(texture2D(source,p).rgb,vec3(2.2));}"
         +"void main(){vec2 p=vec2(uv.x,1.-uv.y);vec3 c=read(p)*.227027027;"
@@ -53,10 +53,14 @@ final class LiveBlurPyramid {
         int pos=GLES20.glGetAttribLocation(program,"pos");vertices.position(0);
         GLES20.glEnableVertexAttribArray(pos);GLES20.glVertexAttribPointer(pos,2,GLES20.GL_FLOAT,false,0,vertices);
     }
-    void update(int external,float[] matrix){
+    void update(int external,float[] matrix,int screenWidth,int screenHeight,int turn){
         GLES20.glActiveTexture(GLES20.GL_TEXTURE7);GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,external);
         target(levels[0],sizes[0],copy);GLES20.glUniform1i(GLES20.glGetUniformLocation(copy,"source"),7);
         GLES20.glUniform1f(GLES20.glGetUniformLocation(copy,"contentScale"),CONTENT_SCALE);
+        float longest=Math.max(screenWidth,screenHeight);
+        GLES20.glUniform2f(GLES20.glGetUniformLocation(copy,"screenExtent"),screenWidth/longest,screenHeight/longest);
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(copy,"horizontalAxis"),turn%2);
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(copy,"sourceTexel"),1f/sizes[0]);
         GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(copy,"tex"),1,false,matrix,0);GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         for(int i=1;i<LEVELS;i++){

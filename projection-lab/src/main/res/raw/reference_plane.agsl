@@ -1,5 +1,4 @@
-// Independent Android implementation of the documented reference-plane model.
-// Reference: Ocisly14/iphone_duo/docs/rendering-design.md, commit 1849d8e.
+// Hinge-anchored perspective crops far content; top/bottom paper contours recede.
 uniform shader layer0;
 uniform shader layer1;
 uniform shader layer2;
@@ -11,6 +10,10 @@ uniform shader layer7;
 uniform float2 size;
 uniform float inner;
 uniform float tilt;
+uniform float crop;
+uniform float spillFraction;
+uniform float hingeDistanceFraction;
+uniform float liveBackdrop;
 uniform float enabled;
 uniform float diagnostic;
 const float PAD=288.0;
@@ -37,20 +40,59 @@ half4 blurred(float2 uv,float sigma) {
 }
 half4 main(float2 pixel) {
     float2 uv=clamp(pixel,float2(0.5),size-0.5);
-    if(enabled<0.5 || (inner>0.5 && uv.x>=size.x*0.5)) return blurred(uv-0.5,0);
+    if(enabled<0.5) return blurred(uv-0.5,0);
     float W=inner>0.5?0.146:0.073;
     float x=(uv.x/size.x-(inner>0.5?0.5:0.0))*W;
     float y=(uv.y/size.y-0.5)*0.16;
-    float3 P=float3(x*cos(tilt),y,abs(x)*sin(tilt));
-    float3 eye=float3(inner>0.5?0.0:0.0365,0,0.6);
-    float3 D=normalize(P-eye);
+    float spill=inner>0.5?0.073*spillFraction*sin(tilt):0.0;
+    if(inner>0.5 && x>=0.0 && (spill<=0.000001 || x>=spill)) {
+        if(liveBackdrop>0.5) return half4(0);
+        return blurred(uv-0.5,0);
+    }
+    float coverage=inner>0.5&&x>0.0?1.0-smoothstep(0.0,max(spill,0.000001),x):1.0;
+    float paperX=inner>0.5?min(x,0.0):x;
+    float3 P=float3(paperX*cos(tilt),y,abs(paperX)*sin(tilt));
+    float3 D=normalize(P-float3(inner>0.5?0.0:0.0365,0,0.6));
     float t=-P.z/min(D.z,-0.0001);
     float3 Q=P+t*D;
+    float2 paperQ=float2(Q.x/W+(inner>0.5?0.5:0.0),Q.y/0.16+0.5);
+    float a=clamp(abs(x)/0.073,0.0,1.0);
+    float blurGap=t;
+    if(inner>0.5){
+        float d=max(spill-x,0.0)/(1.0+spill/0.073);
+        float3 B=float3(-d*cos(tilt),y,d*sin(tilt));
+        blurGap=length(B-float3(0,0,0.6))*B.z/(0.6-B.z);
+    }else{
+        float d=0.073*hingeDistanceFraction+abs(x)*(1.0-hingeDistanceFraction);
+        float3 B=float3(d*cos(tilt),y,d*sin(tilt));
+        blurGap=length(B-float3(0.0365,0,0.6))*B.z/(0.6-B.z);
+    }
     // Reference gains are specified in 1536/768-wide source pixels. Our
     // textures are two thirds that size, so preserve the relative footprint.
     float sourceScale=size.x/(inner>0.5?1536.0:768.0);
-    float sigma=min(96.0,max(t,0.0)*(inner>0.5?1400.0:1000.0))*sourceScale;
-    if(diagnostic>0.5) return half4(half3(sigma/(96.0*sourceScale)),1);
-    float2 samplePoint=float2((Q.x/W+(inner>0.5?0.5:0.0))*size.x,(Q.y/0.16+0.5)*size.y);
-    return blurred(samplePoint-0.5,sigma);
+    float sigma=min(144.0,max(blurGap,0.0)*(inner>0.5?3000.0:2200.0))*sourceScale;
+    float2 samplePoint=inner>0.5&&x>=0.0?uv:float2(((inner>0.5?0.5:0.0)+x*(1.0-crop*a)/W)*size.x,uv.y);
+    float edgeY=min(paperQ.y,1.0-paperQ.y)*size.y;
+    float sideDistance=min(uv.x,size.x-uv.x);
+    float leafPixels=0.073/W*size.x;
+    float radius=leafPixels*0.055*sin(tilt);
+    float cornerX=max(radius-sideDistance,0.0);
+    float cornerInset=radius-sqrt(max(radius*radius-cornerX*cornerX,0.0));
+    float boundary=cornerInset-edgeY;
+    float band=max(leafPixels*0.18,1.0);
+    float inward=max(-boundary,0.0)/band;
+    float influence=exp(-0.5*inward*inward);
+    float edgeSigma=leafPixels*0.025*sin(tilt)*coverage;
+    sigma*=1.4;
+    float baseVariance=sigma*sigma;
+    float edgeVariance=edgeSigma*edgeSigma;
+    float paperSigma=min(96.0,sqrt(baseVariance+edgeVariance));
+    sigma=min(96.0,sqrt(baseVariance+edgeVariance*influence*influence));
+    if(diagnostic>0.5) return half4(half3(sigma/96.0),1);
+    float feather=max(paperSigma*3.2,0.5);
+    float paper=mix(1.0,smoothstep(-feather,feather,-boundary),coverage);
+    half3 effect=blurred(samplePoint-0.5,sigma).rgb*paper;
+    // Live overlays hand back to native pixels; the demo blends into its own source.
+    if(liveBackdrop>0.5) return half4(effect*coverage,coverage);
+    return half4(mix(blurred(uv-0.5,0).rgb,effect,coverage),1);
 }
