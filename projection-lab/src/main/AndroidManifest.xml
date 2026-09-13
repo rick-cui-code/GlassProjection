@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23"/>
     <queries><package android:name="moe.shizuku.privileged.api"/><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.HOME"/></intent></queries>
     <application android:label="@string/app_name" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:icon="@drawable/ic_projection">
@@ -9,6 +15,10 @@
         </activity>
         <activity android:name=".ProjectionActivity" android:exported="true" android:configChanges="screenSize|smallestScreenSize|orientation|screenLayout|density"/>
         <activity android:name=".CacheProbeActivity" android:exported="true"/>
+        <activity android:name=".WirelessPairingActivity" android:exported="false" android:label="玻璃投影配对"
+            android:taskAffinity="io.github.sixzleo.tabfold.projection.pairing" android:excludeFromRecents="false"
+            android:resizeableActivity="true" android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"/>
+        <service android:name=".WirelessPairingService" android:exported="false" android:foregroundServiceType="shortService"/>
         <provider android:name=".ProjectionProvider" android:authorities="io.github.sixzleo.tabfold.projection.surface" android:exported="true"/>
         <service android:name=".ProjectionService" android:exported="true" android:label="@string/app_name" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter>

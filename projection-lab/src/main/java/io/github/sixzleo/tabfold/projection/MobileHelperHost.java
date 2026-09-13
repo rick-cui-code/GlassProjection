@@ -5,7 +5,7 @@ import android.os.*;
 import java.io.*;
 import java.nio.file.*;
 
-/** Shizuku owns this shell-UID process. It starts only our bundled, unchanged helpers. */
+/** Shizuku or our paired local ADB starts this shell host, which runs bundled helpers only. */
 public final class MobileHelperHost extends IHelperHost.Stub {
     private final int appUid;
     private final Context context;
@@ -15,7 +15,7 @@ public final class MobileHelperHost extends IHelperHost.Stub {
     public MobileHelperHost(Context context)throws IOException {
         this.context=context;
         appUid=context.getApplicationInfo().uid;
-        if(android.os.Process.myUid()!=2000)throw new SecurityException("This build requires Shizuku in ADB mode");
+        if(android.os.Process.myUid()!=2000)throw new SecurityException("ADB shell mode required");
         // Take over an earlier ADB-started instance using its existing stop protocol.
         new File(ROOT+"tabfold-live.stop").createNewFile();new File(ROOT+"tabfold-projection-controller.stop").createNewFile();
         SystemClock.sleep(1200);

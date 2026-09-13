@@ -9,6 +9,15 @@ public final class ProjectionProvider extends ContentProvider {
     @Override public Bundle call(String method,String arg,Bundle extras){
         if(Binder.getCallingUid()!=2000 && Binder.getCallingUid()!=android.os.Process.myUid())throw new SecurityException("Own app or ADB shell only");
         Bundle b=new Bundle();
+        if("helper-connect".equals(method)){
+            if(Binder.getCallingUid()!=2000)throw new SecurityException("Shell host only");
+            MobileHelper.init(getContext());
+            try{
+                boolean accepted=MobileHelper.prefersWireless()&&extras!=null&&extras.getBinder("host")!=null&&extras.getLong("version")==getContext().getPackageManager().getPackageInfo(getContext().getPackageName(),0).getLongVersionCode();
+                b.putBoolean("accepted",accepted);if(accepted)MobileHelper.acceptWireless(getContext(),extras.getBinder("host"));
+            }catch(android.content.pm.PackageManager.NameNotFoundException ignored){}
+            return b;
+        }
         if("mirror-live".equals(method)){return ProjectionService.mirrorLive(!"0".equals(arg));}
         if("mirror-preview".equals(method)){ProjectionService.mirrorTest(arg==null?15:Integer.parseInt(arg));return b;}
         if("mirror-lease".equals(method)){return ProjectionService.mirrorLease();}

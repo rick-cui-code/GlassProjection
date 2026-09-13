@@ -24,9 +24,23 @@ public final class ProjectionMath {
     public static final int DEFAULT_STRETCH_PERCENT=100, MAX_STRETCH_PERCENT=125;
     public static int clampStretchPercent(int percent){return Math.max(0,Math.min(MAX_STRETCH_PERCENT,percent));}
     public static float followAngle(float current,float target,long elapsedMs){
+        return followAngle(current,target,elapsedMs,false);
+    }
+    public static float followAngle(float current,float target,long elapsedMs,boolean inner){
         if(!Float.isFinite(target))return current;
         if(!Float.isFinite(current))return target;
-        float step=(float)(1-Math.exp(-Math.max(0,elapsedMs)/12.0));
+        // Measure onset from the active screen's clear endpoint. Inner folding
+        // starts at 180 degrees; outer unfolding starts at zero.
+        float onsetAngle=inner?180-target:target;
+        // Integer hinge readings are most visible before the blur develops.
+        // The visible 4-9 degree onset needs more subframes than the near-clear
+        // endpoint: at 120 Hz the first frame advances about 11%, with 75%
+        // covered over 12 frames (100 ms). Use elapsed time, not queued frames,
+        // so reversal takes effect immediately and other refresh rates agree.
+        // Ease into this extra smoothing over 2-4 degrees, then out over 9-14.
+        float visibleOnset=smoothUnit((onsetAngle-2)/2)*(1-smoothUnit((onsetAngle-9)/5));
+        double timeConstantMs=12+12*(1-smoothUnit((onsetAngle-10)/4))+48*visibleOnset;
+        float step=(float)(1-Math.exp(-Math.max(0,elapsedMs)/timeConstantMs));
         return current+(target-current)*step;
     }
     public static int clampStartAngle(int angle){return Math.max(1,Math.min(30,angle));}
@@ -42,6 +56,14 @@ public final class ProjectionMath {
         float opening=openingAmount(angle,startAngle,physicallyBlocked);
         if(opening==0)return 0;
         return inner?Math.min(opening,smoothUnit((175-angle)/10)):opening;
+    }
+    /** Morph one opaque image from neutral instead of crossfading shifted copies. */
+    public static float onsetMotion(float endpoint,float entry){
+        if(!Float.isFinite(endpoint)||!Float.isFinite(entry))return 0;
+        return Math.max(0,Math.min(1,endpoint))*Math.max(0,Math.min(1,entry));
+    }
+    public static float onsetOpacity(float endpoint){
+        return Float.isFinite(endpoint)&&endpoint>0?1:0;
     }
     public static float effectTilt(float angle,boolean inner,int startAngle,boolean physicallyBlocked){
         float opening=openingAmount(angle,startAngle,physicallyBlocked);

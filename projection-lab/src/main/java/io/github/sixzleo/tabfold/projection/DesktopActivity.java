@@ -1,6 +1,7 @@
 package io.github.sixzleo.tabfold.projection;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -22,10 +23,11 @@ public final class DesktopActivity extends Activity {
     private Button service;
     private SeekBar blur,stretch,open,close,holdTime,startAngle;
     private Switch swipeRestore;
+    private boolean waitingOverlay;
     private final Runnable tick=new Runnable(){public void run(){refreshStatus();handler.postDelayed(this,700);}};
     private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
     @Override public void onCreate(Bundle saved){
-        super.onCreate(saved);AnimationSettings.init(this);MobileHelper.init(this);
+        super.onCreate(saved);waitingOverlay=saved!=null&&saved.getBoolean("waitingOverlay");AnimationSettings.init(this);MobileHelper.init(this);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);
         scroll.setClipToPadding(false);setContentView(scroll);
@@ -42,12 +44,22 @@ public final class DesktopActivity extends Activity {
         page.addView(text("让每一次开合，柔和衔接。",14,MUTED));space(page,24);
         LinearLayout status=card(page);state=text("动画已就绪",17,ACCENT);state.setTypeface(null,Typeface.BOLD);status.addView(state);
         hint=text("在桌面或亮屏锁屏界面，展开或合拢手机即可体验。",13,MUTED);hint.setPadding(0,dp(7),0,dp(14));status.addView(hint);
-        service=button(status,"管理桌面服务",()->startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)),true);
-        section(page,"手机独立运行","启动并授权 Shizuku 后，无需电脑连接。重启手机后需重新启动 Shizuku。");
+        section(page,"① 连接手机端助手","首次配对一次，之后自动寻找本机并连接。不用填写 IP 和端口。");
         LinearLayout mobile=card(page);mobileStatus=text("",13,MUTED);mobile.addView(mobileStatus);
-        button(mobile,"连接 / 授权 Shizuku",()->MobileHelper.authorize(this),true);
-        button(mobile,"后台运行设置",()->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+getPackageName()))),false);
-        mobile.addView(text("退出设置页不会暂停动画，也不在最近任务中保留卡片。请允许后台自启动，并在小米后台设置中取消省电限制。",12,MUTED));
+        button(mobile,"配对",this::pairWireless,true);
+        mobile.addView(text("找不到开发者选项？"+DeveloperOptionsGuide.XIAOMI_PATH,12,MUTED));
+        button(mobile,"如何开启开发者选项",()->DeveloperOptionsGuide.show(this),false);
+        mobile.addView(text("首次需开启无线调试并输入系统配对码。重启后若连接不上，请重新开启无线调试；一般无需再次配对。小米还需开启「USB 调试（安全设置）」。",12,MUTED));
+        section(page,"② 开启无障碍","助手连接成功后，再开启「玻璃投影」无障碍服务以显示动画。");
+        LinearLayout accessibility=card(page);
+        service=button(accessibility,"开启无障碍",()->{
+            if(!MobileHelper.ready()&&ProjectionService.instance==null){Toast.makeText(this,"请先完成第 1 步：连接手机端助手",Toast.LENGTH_SHORT).show();return;}
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        },true);
+        section(page,"后台运行","允许后台运行，退出设置页后也能继续使用。");
+        LinearLayout background=card(page);
+        button(background,"后台运行设置",()->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+getPackageName()))),false);
+        background.addView(text("退出设置页不会暂停动画，也不在最近任务中保留卡片。请允许后台自启动，并在小米后台设置中取消省电限制。",12,MUTED));
         section(page,"作用范围","选择动画出现的位置，半折悬停时自动恢复正常画面。");
         LinearLayout scope=card(page);
         Switch global=new Switch(this);global.setText("全局启用");global.setTextColor(TEXT);global.setTextSize(16);
@@ -80,17 +92,71 @@ public final class DesktopActivity extends Activity {
         reset.setLayoutParams(new LinearLayout.LayoutParams(0,dp(52),1));
         Button pause=button(actions,"暂停动画",()->{ProjectionService.stop();refreshStatus();},false);pause.setLayoutParams(new LinearLayout.LayoutParams(0,dp(52),1));
         TextView foot=text("设置自动保存，下次开合生效。",12,MUTED);foot.setGravity(Gravity.CENTER);foot.setPadding(0,dp(15),0,0);page.addView(foot);
+        button(page,"无线连接开源许可",this::showNotices,false);
+        button(page,"其他配对输入方式",this::alternativePairing,false);
         scroll.requestApplyInsets();refreshStatus();
     }
     private void refreshStatus(){
         if(state==null)return;
         boolean enabled=ProjectionService.instance!=null;
-        boolean ready=enabled&&SystemClock.uptimeMillis()-ProjectionService.helperAt<3000;
-        state.setText(ready?"●  动画已就绪":enabled?"○  等待连接":"○  动画已暂停");
+        boolean ready=enabled&&MobileHelper.ready()&&SystemClock.uptimeMillis()-ProjectionService.helperAt<3000;
+        state.setText(ready?"●  动画已就绪":MobileHelper.ready()?enabled?"○  正在启动动画":"○  等待开启无障碍":"○  等待连接助手");
         String scope=AnimationSettings.globalEnabled?"已全局启用。":"在桌面或亮屏锁屏界面，展开或合拢手机即可体验。";
-        hint.setText(ready?scope+"半折悬停 "+AnimationSettings.holdSeconds+" 秒后恢复正常画面。":enabled?MobileHelper.message:"开启「"+getString(R.string.app_name)+"」无障碍服务后即可使用。");
+        hint.setText(ready?scope+"半折悬停 "+AnimationSettings.holdSeconds+" 秒后恢复正常画面。":MobileHelper.ready()?"助手已连接，请完成第 2 步：开启无障碍。":"请先完成第 1 步：连接手机端助手。");
         if(mobileStatus!=null)mobileStatus.setText(MobileHelper.message);
-        service.setText(enabled?"管理桌面服务":"开启桌面服务");
+        service.setText(enabled?"管理无障碍服务":MobileHelper.ready()?"开启无障碍":"先连接助手，再开启无障碍");
+        service.setAlpha(enabled||MobileHelper.ready()?1:.5f);
+    }
+    private void pairWireless(){
+        if(MobileHelper.wirelessReady()){Toast.makeText(this,"已配对，无需重复配对",Toast.LENGTH_LONG).show();return;}
+        if(!WirelessAdb.paired(this)){startPairing();return;}
+        if(WirelessAdb.isConnecting()){
+            handler.postDelayed(()->{if(!isFinishing()&&!isDestroyed()&&hasWindowFocus())pairWireless();},500);return;
+        }
+        Toast.makeText(this,"正在检查已有配对并连接",Toast.LENGTH_LONG).show();
+        WirelessAdb.connect(this,success->{refreshStatus();if(isFinishing()||isDestroyed())return;
+            if(success){Toast.makeText(this,"已配对，无需重复配对",Toast.LENGTH_LONG).show();return;}
+            if(!WirelessAdb.paired(this)){startPairing();return;}
+            new AlertDialog.Builder(this).setTitle("暂未连接")
+            .setMessage("本机已保存配对记录，请确认无线调试已开启。只有系统移除了玻璃投影的配对记录时，才需要重新配对。")
+            .setPositiveButton("打开无线调试",(d,w)->startPairing()).setNeutralButton("重新配对",(d,w)->startPairing()).setNegativeButton("稍后",null).show();});
+    }
+    private void startPairing(){
+        if(!DeveloperOptionsGuide.enabled(this)){DeveloperOptionsGuide.show(this);return;}
+        WirelessPairingActivity.launch(this);
+    }
+    private void alternativePairing(){
+        new AlertDialog.Builder(this).setTitle("其他配对输入方式")
+            .setMessage("部分设置页面会隐藏悬浮控件，小米通知也可能无法直接回复；推荐使用默认的系统小窗配对。")
+            .setPositiveButton("配对小窗",(d,w)->{
+                if(Settings.canDrawOverlays(this))launchPairing(true);
+                else{waitingOverlay=true;try{startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,android.net.Uri.parse("package:"+getPackageName())));}catch(android.content.ActivityNotFoundException e){waitingOverlay=false;Toast.makeText(this,"请在系统应用权限中允许显示悬浮窗",Toast.LENGTH_LONG).show();}}
+            })
+            .setNeutralButton("使用通知配对",(d,w)->{
+                if(checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},72);
+                else launchPairing(false);
+            })
+            .setNegativeButton("取消",null).show();
+    }
+    private void launchPairing(boolean floating){startForegroundService(new Intent(this,WirelessPairingService.class).putExtra("floating",floating));openWirelessSettings();}
+    private void openWirelessSettings(){
+        WirelessSettings.open(this);
+    }
+    private void showNotices(){
+        try{
+            String[] files=getAssets().list("notices");if(files==null)return;
+            new AlertDialog.Builder(this).setTitle("开源组件与许可").setItems(files,(dialog,index)->{
+                try(java.io.InputStream in=getAssets().open("notices/"+files[index])){
+                    TextView content=text(new String(in.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8),12,TEXT);content.setPadding(dp(18),dp(12),dp(18),dp(12));content.setTextIsSelectable(true);
+                    ScrollView view=new ScrollView(this);view.setBackgroundColor(BG);view.addView(content);
+                    new AlertDialog.Builder(this).setTitle(files[index]).setView(view).setPositiveButton("关闭",null).show();
+                }catch(java.io.IOException ignored){}
+            }).setNegativeButton("关闭",null).show();
+        }catch(java.io.IOException ignored){}
+    }
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){
+        super.onRequestPermissionsResult(request,permissions,results);
+        if(request==72){if(results.length>0&&results[0]==android.content.pm.PackageManager.PERMISSION_GRANTED)launchPairing(false);else Toast.makeText(this,"可以改用配对小窗，无需通知内输入",Toast.LENGTH_LONG).show();}
     }
     private TextView text(String value,int size,int color){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(color);t.setFontFeatureSettings("tnum");return t;}
     private GradientDrawable background(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
@@ -126,6 +192,7 @@ public final class DesktopActivity extends Activity {
             public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });bar.setStateDescription(initial+unit);return bar;
     }
-    @Override public void onResume(){super.onResume();handler.removeCallbacks(tick);handler.post(tick);}
+    @Override public void onResume(){super.onResume();if(waitingOverlay){waitingOverlay=false;if(Settings.canDrawOverlays(this))launchPairing(true);}if(MobileHelper.prefersWireless())MobileHelper.prepare(this);handler.removeCallbacks(tick);handler.post(tick);}
+    @Override public void onSaveInstanceState(Bundle out){out.putBoolean("waitingOverlay",waitingOverlay);super.onSaveInstanceState(out);}
     @Override public void onPause(){handler.removeCallbacks(tick);super.onPause();}
 }

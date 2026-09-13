@@ -92,5 +92,32 @@ public final class ProjectionEntranceTest {
         near(coarse.update(20000,true,false),0);
         System.out.println("PASS: inner flat-to-fold, skipped first angle, panel handoff and physical closure");
         System.out.println("PASS: neutral first crop, skipped-angle onset, frame-independent join, closure/reopen and scene reset");
+        // Replay a single sharp icon during onset: any motion must fully cover
+        // the original icon, while the first frame must match its old position.
+        for(boolean isInner:new boolean[]{false,true}){
+            for(float angle:isInner?new float[]{174,171,165}:new float[]{2,4,9}){
+                ProjectionEntrance join=new ProjectionEntrance();
+                float endpoint=ProjectionMath.endpointOpacity(angle,isInner,1,false);
+                float previousMotion=0;
+                for(int time=0;time<=180;time++){
+                    float progress=join.update(time,true,false);
+                    float motion=ProjectionMath.onsetMotion(endpoint,progress);
+                    float opacity=ProjectionMath.onsetOpacity(endpoint);
+                    float crop=ProjectionMath.cropFraction(angle,isInner)*motion;
+                    if(time==0)near(crop,0);
+                    if(crop>0&&1-opacity!=0)throw new AssertionError("moving icon must not expose a second unshifted icon");
+                    near(opacity,1);
+                    if(motion<previousMotion||motion-previousMotion>.009f)throw new AssertionError("opaque onset must morph continuously");
+                    previousMotion=motion;
+                }
+                near(previousMotion,endpoint);
+                float boundary=isInner?175:1;
+                float almost=ProjectionMath.endpointOpacity(boundary+(isInner?-.001f:.001f),isInner,1,false);
+                if(ProjectionMath.onsetMotion(almost,1)>.000001f)throw new AssertionError("handoff at endpoint must be visually neutral");
+                near(ProjectionMath.onsetOpacity(ProjectionMath.endpointOpacity(boundary,isInner,1,false)),0);
+                near(ProjectionMath.onsetOpacity(ProjectionMath.endpointOpacity(angle,isInner,1,true)),0);
+            }
+        }
+        System.out.println("PASS: opaque inner/outer onset, no unshifted icon contribution, neutral first frame and endpoint handback");
     }
 }

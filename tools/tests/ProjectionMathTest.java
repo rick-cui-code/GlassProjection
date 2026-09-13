@@ -201,6 +201,74 @@ public final class ProjectionMathTest {
         if(Math.abs(stepped-response)>.0001)throw new AssertionError("follow must be independent of frame rate");
         float reversed=ProjectionMath.followAngle(response,10,8);
         if(reversed>=response||reversed<10)throw new AssertionError("reversal must follow immediately without overshoot");
+        for(int degree=0;degree<10;degree++){
+            float first=ProjectionMath.followAngle(degree,degree+1,16);
+            if(first-degree<.18f||first-degree>.55f)throw new AssertionError("small-angle integer step must expose intermediate frames");
+            if(degree+1>=4&&degree+1<=9&&first-degree>.22f)throw new AssertionError("visible 4-9 degree onset needs denser subframes");
+            float second=ProjectionMath.followAngle(first,degree+1,16);
+            if(second<=first||second>=degree+1)throw new AssertionError("small-angle continuation must remain monotonic");
+            float settled=ProjectionMath.followAngle(degree,degree+1,216);
+            if(settled<degree+.95f||settled>degree+1)throw new AssertionError("small-angle smoothing must settle promptly");
+            float highRefresh=degree;
+            for(int frame=0;frame<4;frame++)highRefresh=ProjectionMath.followAngle(highRefresh,degree+1,8);
+            if(Math.abs(highRefresh-second)>.00001)throw new AssertionError("interpolation must track time at both 60 and 120 Hz");
+            float closing=ProjectionMath.followAngle(degree+1,degree,16);
+            if(closing<=degree||closing>=degree+1)throw new AssertionError("closing must also interpolate without overshoot");
+        }
+        float previousStep=ProjectionMath.followAngle(9,10,8)-9;
+        for(int i=1;i<=500;i++){
+            float target=10+i*.01f;
+            float step=ProjectionMath.followAngle(target-1,target,8)-(target-1);
+            if(step<previousStep-.00001f||step-previousStep>.002f)throw new AssertionError("10-degree boundary must blend continuously back to normal speed");
+            previousStep=step;
+        }
+        for(float boundary:new float[]{2,4,9,10,14}){
+            float below=ProjectionMath.followAngle(boundary-1.001f,boundary-.001f,16)-(boundary-1.001f);
+            float above=ProjectionMath.followAngle(boundary-.999f,boundary+.001f,16)-(boundary-.999f);
+            if(Math.abs(above-below)>.0002f)throw new AssertionError("onset smoothing boundary changes speed abruptly");
+        }
+        for(int target=4;target<=9;target++){
+            float visible=target-1;
+            for(int frame=0;frame<12;frame++){
+                // Integer millisecond timestamps alternate 8/8/9 at 120 Hz.
+                float next=ProjectionMath.followAngle(visible,target,frame%3==2?9:8);
+                if(next<=visible||next-visible>.12f)throw new AssertionError("120 Hz onset must progress through twelve small subframes");
+                visible=next;
+            }
+            if(visible<target-.26f||visible>target-.24f)throw new AssertionError("twelve 120 Hz frames should cover about 75% of the step");
+            if(Math.abs(visible-ProjectionMath.followAngle(target-1,target,100))>.00001f)throw new AssertionError("120 Hz timestamp cadence must match elapsed-time response");
+            float reverse=ProjectionMath.followAngle(visible,target-1,8);
+            if(reverse>=visible||reverse<target-1)throw new AssertionError("dense onset must reverse immediately without playing queued frames");
+        }
+        System.out.println("PASS: denser 4-9 degree subframes, bounded settling, immediate reversal, refresh-rate independence, smooth entry/exit boundaries");
+        // The inner screen must mirror the outer response around 180 degrees,
+        // including entry/exit boundaries and frame timing during reversal.
+        for(int sample=0;sample<=18000;sample++){
+            float target=sample*.01f;
+            float outer=ProjectionMath.followAngle(target-1,target,8,false);
+            float inner=ProjectionMath.followAngle(181-target,180-target,8,true);
+            if(Math.abs(outer+inner-180)>.00004f)throw new AssertionError("inner onset must mirror outer smoothing across the full angle range");
+        }
+        for(int target=171;target<=176;target++){
+            float inner=target+1;
+            for(int frame=0;frame<12;frame++){
+                float next=ProjectionMath.followAngle(inner,target,frame%3==2?9:8,true);
+                if(next>=inner||inner-next>.12f)throw new AssertionError("inner onset needs twelve small 120 Hz subframes");
+                inner=next;
+            }
+            if(inner<target+.24f||inner>target+.26f)throw new AssertionError("inner twelve-frame response must match outer onset");
+            if(Math.abs(inner-ProjectionMath.followAngle(target+1,target,100,true))>.0001f)throw new AssertionError("inner follow must be frame-rate independent");
+            float reverse=ProjectionMath.followAngle(inner,target+1,8,true);
+            if(reverse<=inner||reverse>target+1)throw new AssertionError("inner reopening must reverse immediately without overshoot");
+            float settled=ProjectionMath.followAngle(target+1,target,216,true);
+            if(settled<target||settled>target+.051f)throw new AssertionError("inner onset must settle within the same time bound");
+        }
+        float innerNormal=ProjectionMath.followAngle(180,120,36,true);
+        if(innerNormal>123||innerNormal<120)throw new AssertionError("inner large-angle response must retain normal speed");
+        near(ProjectionMath.followAngle(Float.NaN,175,8,true),175);
+        near(ProjectionMath.followAngle(175,Float.NaN,8,true),175);
+        near(ProjectionMath.followAngle(175,174,-1,true),175);
+        System.out.println("PASS: mirrored inner onset at 176-171 degrees, 120 Hz cadence, bounded settling, reversal and unchanged large-angle speed");
         System.out.println("PASS: clear endpoints, hinge anchored, linear far-side and interior motion, bounded perspective, unchanged vertical scale, fixed inner right, monotonic depth blur at every angle");
         System.out.println("PASS: adjustable fade boundaries, unchanged flat endpoint, physical closure and pending sensor override every threshold");
     }

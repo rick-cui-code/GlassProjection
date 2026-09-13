@@ -50,6 +50,11 @@ half4 main(float2 pixel) {
         return blurred(uv-0.5,0);
     }
     float coverage=inner>0.5&&x>0.0?1.0-smoothstep(0.0,max(spill,0.000001),x):1.0;
+    // A neutral entry must reproduce the source, including the paper edges.
+    if(tilt==0.0 && crop==0.0) {
+        half4 clear=blurred(uv-0.5,0);
+        return liveBackdrop>0.5?half4(clear.rgb*coverage,coverage):clear;
+    }
     float paperX=inner>0.5?min(x,0.0):x;
     float3 P=float3(paperX*cos(tilt),y,abs(paperX)*sin(tilt));
     float3 D=normalize(P-float3(inner>0.5?0.0:0.0365,0,0.6));
