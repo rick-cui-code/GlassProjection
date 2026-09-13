@@ -50,5 +50,5 @@ APK 为 debug 构建签名，发布附件提供 SHA-256 校验值。自建 APK �
 ## 附件校验
 
 ```text
-SHA256SUMS-0.4.0.txt 中列出本次 Release APK 的 SHA-256。
+190b3a528fd4edc477d61de44237aab8fd87c4e667a2c5be45d19e8b10a8d003  GlassProjection-0.4.0.apk
 ```
