@@ -8,10 +8,12 @@ import java.nio.file.*;
 /** Shizuku owns this shell-UID process. It starts only our bundled, unchanged helpers. */
 public final class MobileHelperHost extends IHelperHost.Stub {
     private final int appUid;
+    private final Context context;
     private java.lang.Process renderer,controller;
     private boolean running;
     private static final String ROOT="/data/local/tmp/";
     public MobileHelperHost(Context context)throws IOException {
+        this.context=context;
         appUid=context.getApplicationInfo().uid;
         if(android.os.Process.myUid()!=2000)throw new SecurityException("This build requires Shizuku in ADB mode");
         // Take over an earlier ADB-started instance using its existing stop protocol.
@@ -50,5 +52,36 @@ public final class MobileHelperHost extends IHelperHost.Stub {
         if(renderer!=null)renderer.destroy();if(controller!=null)controller.destroy();renderer=null;controller=null;
     }
     @Override public synchronized String status(){caller();return "uid="+android.os.Process.myUid()+" requested="+running+" renderer="+(renderer!=null&&renderer.isAlive())+" controller="+(controller!=null&&controller.isAlive());}
+    @Override public synchronized boolean observeTouch(IBinder binder,boolean enabled){
+        caller();if(Build.VERSION.SDK_INT<34)return false;
+        long identity=Binder.clearCallingIdentity();
+        Object connection=null;java.lang.reflect.Method setter=null;
+        android.accessibilityservice.AccessibilityServiceInfo info=null;
+        try{
+            if(enabled&&context.checkPermission("android.permission.ACCESSIBILITY_MOTION_EVENT_OBSERVING",android.os.Process.myPid(),2000)!=android.content.pm.PackageManager.PERMISSION_GRANTED)
+                throw new SecurityException("Shell motion observing permission missing");
+            Class<?> api=Class.forName("android.accessibilityservice.IAccessibilityServiceConnection");
+            connection=Class.forName("android.accessibilityservice.IAccessibilityServiceConnection$Stub").getMethod("asInterface",IBinder.class).invoke(null,binder);
+            info=(android.accessibilityservice.AccessibilityServiceInfo)api.getMethod("getServiceInfo").invoke(connection);
+            if(info==null||info.getResolveInfo()==null||info.getResolveInfo().serviceInfo.applicationInfo.uid!=appUid
+                    ||!ProjectionService.class.getName().equals(info.getResolveInfo().serviceInfo.name))
+                throw new SecurityException("Own accessibility connection only");
+            setter=api.getMethod("setServiceInfo",android.accessibilityservice.AccessibilityServiceInfo.class);
+            int source=enabled?android.view.InputDevice.SOURCE_TOUCHSCREEN:0;
+            // Submit both masks together under the already authorized shell identity.
+            // A consuming-only touchscreen subscription would block the user's gestures.
+            info.setMotionEventSources(source);
+            java.lang.reflect.Method observed=info.getClass().getMethod("setObservedMotionEventSources",int.class);
+            observed.invoke(info,source);setter.invoke(connection,info);
+            android.accessibilityservice.AccessibilityServiceInfo actual=(android.accessibilityservice.AccessibilityServiceInfo)api.getMethod("getServiceInfo").invoke(connection);
+            int mask=(Integer)info.getClass().getMethod("getObservedMotionEventSources").invoke(actual);
+            if(actual.getMotionEventSources()!=source||mask!=source)throw new IllegalStateException("Observing mask rejected");
+            android.util.Log.i("ProjectionTouch","OBSERVING="+enabled+" sources="+source+" observed="+mask);
+            return true;
+        }catch(Exception e){
+            if(setter!=null&&info!=null)try{info.setMotionEventSources(0);setter.invoke(connection,info);}catch(Exception ignored){}
+            android.util.Log.w("ProjectionTouch","Observer unavailable",e);return false;
+        }finally{Binder.restoreCallingIdentity(identity);}
+    }
     @Override public synchronized void destroy(){caller();stop();System.exit(0);}
 }

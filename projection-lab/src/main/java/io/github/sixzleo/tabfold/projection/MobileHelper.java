@@ -23,12 +23,18 @@ final class MobileHelper {
     };
     static void init(Context c){
         if(initialized)return;initialized=true;context=c.getApplicationContext();
-        arguments=new Shizuku.UserServiceArgs(new ComponentName(context,MobileHelperHost.class)).daemon(true).processNameSuffix("glass_helpers").tag("glass_helpers").version(1);
+        arguments=new Shizuku.UserServiceArgs(new ComponentName(context,MobileHelperHost.class)).daemon(true).processNameSuffix("glass_helpers").tag("glass_helpers").version(3);
         Shizuku.addBinderReceivedListenerSticky(()->{message="Shizuku 已启动";schedule();});
         Shizuku.addBinderDeadListener(()->{host=null;binding=false;message="Shizuku 已停止，请在手机上重新启动";});
         Shizuku.addRequestPermissionResultListener((code,result)->{if(code==312){message=result==PackageManager.PERMISSION_GRANTED?"已授权，正在连接":"未授予 Shizuku 权限";schedule();}});
     }
     static void start(Context c){init(c);active=true;schedule();}
+    static boolean available(){return active&&host!=null&&host.asBinder().isBinderAlive();}
+    static void observeTouch(IBinder connection,java.util.function.Consumer<Boolean> done){
+        final IHelperHost current=host;
+        worker.execute(()->{boolean okay=false;try{if(active&&current!=null)okay=current.observeTouch(connection,true);}catch(Exception ignored){}
+            final boolean result=okay;main.post(()->done.accept(result));});
+    }
     private static void schedule(){main.removeCallbacks(tick);main.post(tick);}
     private static final Runnable tick=new Runnable(){public void run(){
         if(!active)return;
@@ -36,7 +42,12 @@ final class MobileHelper {
             if(!Shizuku.pingBinder())message="请先在手机上启动 Shizuku";
             else if(Shizuku.checkSelfPermission()!=PackageManager.PERMISSION_GRANTED)message="请授权 Shizuku 启动助手";
             else if(host==null){
-                if(!binding||SystemClock.uptimeMillis()-bindingAt>10000){binding=true;bindingAt=SystemClock.uptimeMillis();Shizuku.bindUserService(arguments,connection);message="正在启动手机端助手";}
+                if(!binding||SystemClock.uptimeMillis()-bindingAt>20000){
+                    // A failed UserService launch can leave a record with no process.
+                    // Remove that timed-out record before requesting another launch.
+                    if(binding)Shizuku.unbindUserService(arguments,connection,true);
+                    binding=true;bindingAt=SystemClock.uptimeMillis();Shizuku.bindUserService(arguments,connection);message="正在启动手机端助手";
+                }
             }else{
                 final IHelperHost current=host;
                 worker.execute(()->{if(!active)return;try{int state=current.ensureRunning();message=state==3?"手机端助手运行中":"助手启动未完成";}catch(Exception e){host=null;binding=false;message="连接中断，正在重连";}});

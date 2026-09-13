@@ -33,3 +33,11 @@ Its application is not bundled.
 The numbered diagnostic artwork was generated for this project by `tools/bake_demo.py`.
 It does not contain user screenshots or upstream wallpapers. Fonts are not distributed.
 Optional regeneration uses NumPy and Pillow from the developer's environment.
+
+## HiddenApiBypass
+
+`org.lsposed.hiddenapibypass:hiddenapibypass:6.1`:
+[LSPosed/AndroidHiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass),
+Apache License 2.0, copyright 2021-2025 LSPosed.
+Used for compatibility with our own accessibility connection and callback state.
+See [licenses/HiddenApiBypass-LICENSE](licenses/HiddenApiBypass-LICENSE).

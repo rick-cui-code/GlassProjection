@@ -18,7 +18,8 @@ public final class DesktopActivity extends Activity {
     private TextView state,hint;
     private TextView mobileStatus;
     private Button service;
-    private SeekBar blur,open,close;
+    private SeekBar blur,open,close,holdTime;
+    private Switch swipeRestore;
     private final Runnable tick=new Runnable(){public void run(){refreshStatus();handler.postDelayed(this,700);}};
     private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
     @Override public void onCreate(Bundle saved){
@@ -45,6 +46,21 @@ public final class DesktopActivity extends Activity {
         button(mobile,"连接 / 授权 Shizuku",()->MobileHelper.authorize(this),true);
         button(mobile,"后台运行设置",()->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+getPackageName()))),false);
         mobile.addView(text("退出设置页不会暂停动画，也不在最近任务中保留卡片。请允许后台自启动，并在小米后台设置中取消省电限制。",12,MUTED));
+        section(page,"作用范围","选择动画出现的位置，半折悬停时自动恢复正常画面。");
+        LinearLayout scope=card(page);
+        Switch global=new Switch(this);global.setText("全局启用");global.setTextColor(TEXT);global.setTextSize(16);
+        global.setChecked(AnimationSettings.globalEnabled);global.setPadding(0,dp(8),0,dp(8));
+        global.setOnCheckedChangeListener((b,checked)->{AnimationSettings.global(checked);refreshStatus();});
+        scope.addView(global,new LinearLayout.LayoutParams(-1,dp(56)));
+        scope.addView(text("关闭：仅桌面和锁屏。开启：扩展到其他应用的可捕获画面。",13,MUTED));
+        section(page,"恢复正常画面","悬停或滑动时，约 220 毫秒平滑回放；继续开合超过 10° 后重新跟随。");
+        LinearLayout restore=card(page);
+        holdTime=slider(restore,"悬停等待时间","默认 3 秒 · 在此时间内角度摆幅不超过 10° 时恢复。",1,10,1,AnimationSettings.holdSeconds," 秒",v->{AnimationSettings.hold(v);refreshStatus();});
+        swipeRestore=new Switch(this);swipeRestore.setText("滑动恢复正常画面");swipeRestore.setTextColor(TEXT);swipeRestore.setTextSize(16);
+        swipeRestore.setChecked(AnimationSettings.swipeRestore);swipeRestore.setPadding(0,dp(10),0,dp(8));
+        swipeRestore.setOnCheckedChangeListener((b,checked)->AnimationSettings.swipe(checked));
+        restore.addView(swipeRestore,new LinearLayout.LayoutParams(-1,dp(60)));
+        restore.addView(text("检测到手指滑动就立即回放，静态页面上也有效。轻点不触发，应用仍正常响应手势。",12,MUTED));
         section(page,"玻璃质感","调节雾化程度，保留原有的投影形状。");
         blur=slider(card(page),"模糊强度","100% 为当前默认效果；0% 关闭模糊。",0,200,5,AnimationSettings.blurPercent,"%",AnimationSettings::blur);
         section(page,"切屏时机","展开与合拢分别设置，角度越小越接近合上。");
@@ -54,7 +70,7 @@ public final class DesktopActivity extends Activity {
         close=slider(angles,"合拢时切到外屏","默认 120° · 可调 10–170°",10,170,1,AnimationSettings.closeAngle,"°",AnimationSettings::close);
         space(page,12);button(page,"回到桌面体验",()->startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)),true);
         LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);page.addView(actions);
-        Button reset=button(actions,"恢复默认",()->{AnimationSettings.reset();blur.setProgress(20);open.setProgress(50);close.setProgress(110);Toast.makeText(this,"已恢复：100% · 展开 60° · 合拢 120°",Toast.LENGTH_SHORT).show();},false);
+        Button reset=button(actions,"恢复默认",()->{AnimationSettings.reset();blur.setProgress(20);open.setProgress(50);close.setProgress(110);holdTime.setProgress(2);swipeRestore.setChecked(false);refreshStatus();Toast.makeText(this,"已恢复：100% · 展开 60° · 合拢 120° · 悬停 3 秒",Toast.LENGTH_SHORT).show();},false);
         reset.setLayoutParams(new LinearLayout.LayoutParams(0,dp(52),1));
         Button pause=button(actions,"暂停动画",()->{ProjectionService.stop();refreshStatus();},false);pause.setLayoutParams(new LinearLayout.LayoutParams(0,dp(52),1));
         TextView foot=text("设置自动保存，下次开合生效。",12,MUTED);foot.setGravity(Gravity.CENTER);foot.setPadding(0,dp(15),0,0);page.addView(foot);
@@ -65,7 +81,8 @@ public final class DesktopActivity extends Activity {
         boolean enabled=ProjectionService.instance!=null;
         boolean ready=enabled&&SystemClock.uptimeMillis()-ProjectionService.helperAt<3000;
         state.setText(ready?"●  动画已就绪":enabled?"○  等待连接":"○  动画已暂停");
-        hint.setText(ready?"在桌面或亮屏锁屏界面，展开或合拢手机即可体验。":enabled?MobileHelper.message:"开启「参考平面桌面动画」后即可使用。");
+        String scope=AnimationSettings.globalEnabled?"已全局启用。":"在桌面或亮屏锁屏界面，展开或合拢手机即可体验。";
+        hint.setText(ready?scope+"半折悬停 "+AnimationSettings.holdSeconds+" 秒后恢复正常画面。":enabled?MobileHelper.message:"开启「参考平面桌面动画」后即可使用。");
         if(mobileStatus!=null)mobileStatus.setText(MobileHelper.message);
         service.setText(enabled?"管理桌面服务":"开启桌面服务");
     }

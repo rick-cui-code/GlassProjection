@@ -7,8 +7,8 @@ android {
         applicationId = "io.github.sixzleo.tabfold.projection"
         minSdk = 33
         targetSdk = 35
-        versionCode = 23
-        versionName = "0.3.12-mobile-helper"
+        versionCode = 26
+        versionName = "0.3.15-finger-restore"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -17,6 +17,7 @@ android {
     buildFeatures { aidl = true }
 }
 dependencies {
+    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:6.1")
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
 }

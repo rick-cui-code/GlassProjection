@@ -16,15 +16,15 @@ def main():
     javac = Path(java_home) / "bin" / ("javac" + SUFFIX)
     package = "io.github.sixzleo.tabfold.projection"
     source = ROOT / "projection-lab/src/main/java" / package.replace(".", "/")
-    files = [source / f"{name}.java" for name in ("ProjectionMath", "FrameGate", "LockScreenGate")]
-    files += [ROOT / "tools/helpers/EarlyDisplayModel.java"]
+    files = [source / f"{name}.java" for name in ("ProjectionMath", "FrameGate", "LockScreenGate", "FoldHoldGate", "FingerSwipeGate")]
+    files += [ROOT / "tools/helpers/EarlyDisplayModel.java", ROOT / "tools/helpers/FoldReturnMotion.java"]
     files += sorted((ROOT / "tools/tests").glob("*.java"))
     build = ROOT / "build"
     build.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="models-", dir=build) as output:
         subprocess.run([str(javac), "-encoding", "UTF-8", "-d", output, *map(str, files)], check=True)
-        tests = [package + "." + name for name in ("ProjectionMathTest", "FrameGateTest", "LockScreenGateTest")]
-        tests += ["io.github.sixzleo.tabfold.probe.EarlyDisplayModelTest"]
+        tests = [package + "." + name for name in ("ProjectionMathTest", "FrameGateTest", "LockScreenGateTest", "FoldHoldGateTest", "FingerSwipeGateTest")]
+        tests += ["io.github.sixzleo.tabfold.probe.EarlyDisplayModelTest", "io.github.sixzleo.tabfold.probe.FoldReturnMotionTest"]
         for test in tests:
             subprocess.run([str(java), "-cp", output, test], check=True)
 

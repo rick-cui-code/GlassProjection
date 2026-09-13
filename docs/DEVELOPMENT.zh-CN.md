@@ -37,21 +37,23 @@ Windows 使用 `gradlew.bat`。Python 脚本仅需 Python 3.10+ 标准库。`--c
 
 ## 当前 Release 的二进制来源
 
-v0.3.12 的 APK 为用户已安装、已验证的原始 debug APK。已从设备读取安装包并核对，SHA-256 与 Release 附件相同：
+v0.3.15 发布当前已安装、已验证的 debug APK，不重新签名。SHA-256：
 
 ```text
-754915ce12a65ba347723a17a9e76674ad63cee495116f8bd756471a07ebca10  GlassProjection-0.3.12.apk
-a210f96c482554d34c55ee258664c1986c49fe09e69e4252179d1eaf58c23163  live.dex
+971132567c727f9cfefac55471ac3c7ee1d878b5af58573f6e1fc4734eb6937b  GlassProjection-0.3.15.apk
+8e75e0a5acac99c53162cb59432f24c23adfe1dad217059de3a5a73d39a84f3d  live.dex
 2da8789e5157c684c6e4a594b673425411850e43c413df3be0a2a458fcbea470  controller.dex
 ```
 
-发布没有替换成新签名 APK。源码整理只调整顶层构建配置、文档和辅助脚本，应用源码与资源保持当前安装版本。APK ZIP 时间戳、构建环境及签名密钥会影响整包字节；不承诺不同机器重建的 APK 与附件逐字节相同。私钥不纳入 Git，后续正式签名需要维护者单独管理。
+`python tools/audit_publication.py --apk dist/GlassProjection-0.3.15.apk` 扫描待发布文件，并比较附件与本机构建的运行时代码、资源和清单。APK ZIP 时间戳、构建环境及签名密钥会影响整包字节；不承诺不同机器重建的 APK 与附件逐字节相同。私钥不纳入 Git。
+
+早期 v0.3.12 Release 保持原样；当前变更包括全局范围、悬停恢复、真实手指滑动恢复和助手重连处理。详见[恢复选项](RESTORE-OPTIONS.zh-CN.md)。
 
 ## 运行路径
 
-`ProjectionService` 负责桌面/锁屏判断、铰链数据、实时输出宿主和助手心跳。`MobileHelper` 在服务连接后绑定 Shizuku UserService；`MobileHelperHost` 以 shell UID 启动 APK 内置的两份 DEX，并检查它们是否存活。
+`ProjectionService` 负责作用范围判断、铰链数据、实时输出宿主和助手心跳。`MobileHelper` 在服务连接后绑定 Shizuku UserService；`MobileHelperHost` 以 shell UID 启动 APK 内置的两份 DEX，并检查它们是否存活。
 
-`LiveMirrorWindowProbe` 取得实时镜像，将它送入 GPU 模糊金字塔，再按铰链角度投影。当前默认路径不按每个桌面页做静态截图缓存。`MirrorPreview` 通过 `SurfaceControlViewHost` 和显示器级无障碍挂载提供输出，避开此前窗口层级参与的部分系统淡入动画。输出不接收触控。
+`LiveMirrorWindowProbe` 取得实时镜像，将它送入 GPU 模糊金字塔，再按铰链角度投影。当前默认路径不按每个桌面页做静态截图缓存。`MirrorPreview` 通过 `SurfaceControlViewHost` 和显示器级无障碍挂载提供输出，避开此前窗口层级参与的部分系统淡入动画。输出不接收触控。滑动恢复由 TouchObservation 为本服务配置被动观察，FingerSwipeGate 判断位移；FoldHoldGate 统一管理悬停和滑动恢复状态，渲染器中的 FoldReturnMotion 平滑回放投影。
 
 `EarlyDisplayHelper` 从受 UID 限制的 provider 读取状态，以进程绑定的 DeviceStateRequest 控制切屏。心跳过期、场景不允许或进程退出时释放覆盖；用户暂停会停用无障碍并停止助手。
 

@@ -1,4 +1,5 @@
 """Check tracked publication files and compare the tested APK with the local build."""
+import argparse
 from pathlib import Path
 import re
 import subprocess
@@ -8,6 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--apk", type=Path, help="Tested release APK to compare with the local build")
+    args = parser.parse_args()
     tracked = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).decode().split("\0")
     patterns = [
         rb"gh[pousr]_[A-Za-z0-9]{20,}",
@@ -27,8 +31,12 @@ def main():
             if re.search(pattern, content):
                 raise SystemExit(f"Review possible private data in {relative}")
     print(f"Publication scan passed: {len(list(filter(None, tracked)))} tracked files.")
-    original = ROOT / "dist/GlassProjection-0.3.12.apk"
+    if args.apk is None:
+        return
+    original = args.apk if args.apk.is_absolute() else ROOT / args.apk
     rebuilt = ROOT / "projection-lab/build/outputs/apk/debug/projection-lab-debug.apk"
+    if not original.is_file() or not rebuilt.is_file():
+        raise SystemExit("Both the tested APK and local build are required.")
     if original.exists() and rebuilt.exists():
         with zipfile.ZipFile(original) as a, zipfile.ZipFile(rebuilt) as b:
             names = {n for n in a.namelist() if n.endswith(".dex") or n.startswith("assets/") or n in ("AndroidManifest.xml", "resources.arsc")}

@@ -26,6 +26,10 @@ public final class ProjectionService extends AccessibilityService implements Sen
     private final HashSet<String> homes=new HashSet<>();
     private final FrameGate gate=new FrameGate();
     private final LockScreenGate lockGate=new LockScreenGate();
+    private final FoldHoldGate holdGate=new FoldHoldGate();
+    private volatile boolean foldHeld;
+    private final TouchObservation touchObservation=new TouchObservation(this);
+    private final FingerSwipeGate fingerSwipe=new FingerSwipeGate();
     private SensorManager sensors;
     private DisplayManager displays;
     private WindowManager manager;
@@ -62,6 +66,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
         b.putBoolean("alive",s.mirrorPreview!=null&&SystemClock.uptimeMillis()<s.mirrorUntil);
         b.putBoolean("allowed",allowed);b.putBoolean("inner",primaryInner);b.putInt("rotation",d.getRotation());
         b.putBoolean("standby",standby);
+        b.putBoolean("foldHeld",s.foldHeld);
         b.putFloat("blurStrength",AnimationSettings.blurPercent/100f);
         b.putInt("screenWidth",p.x);b.putInt("screenHeight",p.y);b.putInt("state",d.getState());b.putFloat("angle",hinge);
         return b;
@@ -87,6 +92,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
         displays.registerDisplayListener(displayListener,main);status="已开启，等待桌面";main.post(tick);
         Log.i("ProjectionDesktop","CONNECTED homes="+homes+" hinge only");
         MobileHelper.start(this);
+
     }
     private boolean home() {
         homeUncertain=false;
@@ -130,18 +136,23 @@ public final class ProjectionService extends AccessibilityService implements Sen
     }
     private void update() {
         if(!connected)return;
-        long now=SystemClock.uptimeMillis();boolean home=home();if(home)lastHomeAt=now;
+        touchObservation.update(AnimationSettings.swipeRestore);
+        long now=SystemClock.uptimeMillis();boolean global=AnimationSettings.globalEnabled;
+        boolean home=!global&&home();if(home)lastHomeAt=now;
         Display d=displays.getDisplay(0);primaryInner=d!=null && inner(d);
         standby=!getSystemService(PowerManager.class).isInteractive();
         boolean locked=getSystemService(KeyguardManager.class).isKeyguardLocked();
-        lockScreen=livePreferred&&lockGate.visible(locked,!standby,locked&&!standby?lockWindowState():0,now);
-        allowed=!standby&&(home || lockScreen || (homeUncertain && now-lastHomeAt<1000));updatedAt=now;
+        lockScreen=global?locked&&!standby:livePreferred&&lockGate.visible(locked,!standby,locked&&!standby?lockWindowState():0,now);
+        allowed=d!=null&&!standby&&(global || home || lockScreen || (homeUncertain && now-lastHomeAt<1000));updatedAt=now;
+        holdGate.configure(AnimationSettings.holdSeconds);
+        boolean held=holdGate.update(now,hinge,allowed);
+        if(held!=foldHeld){foldHeld=held;Log.i("ProjectionHold",(held?"RETURN_TO_NORMAL":"FOLLOW_HINGE")+" angle="+hinge);}
         if(mirrorFold&&now<mirrorUntil&&allowed&&d!=null){
             reset();closeWindow();
             if(mirrorPreview==null&&d.getState()==Display.STATE_ON)mirrorPreview=new MirrorPreview(this,d,true);
             Point p=new Point();d.getRealSize(p);String current=key(d,p)+":"+d.getState();
-            if(!current.equals(mirrorScene)){mirrorScene=current;Log.i("ProjectionContinuity","DISPLAY "+current+" angle="+hinge);}
-            status=lockScreen?"连续锁屏投影运行中":"连续桌面投影运行中";
+            if(!current.equals(mirrorScene)){fingerSwipe.reset();mirrorScene=current;Log.i("ProjectionContinuity","DISPLAY "+current+" angle="+hinge);}
+            status=foldHeld?"悬停使用中，画面已恢复正常":global?"全局开合投影运行中":lockScreen?"连续锁屏投影运行中":"连续桌面投影运行中";
             return;
         }
         if(!mirrorFold&&now<mirrorUntil && allowed && d!=null && d.getState()==Display.STATE_ON){
@@ -155,7 +166,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
         }
         if(mirrorPreview!=null){Log.i("ProjectionDesktop","MIRROR_STOP remaining="+(mirrorUntil-now)+" home="+home+" allowed="+allowed+" display="+(d==null?-1:d.getState()));mirrorPreview.close();mirrorPreview=null;mirrorUntil=0;}
         if(now>=mirrorUntil)mirrorFold=false;
-        if(livePreferred){reset();closeWindow();status=now<liveUntil?"连续投影已就绪，等待桌面或锁屏":"连续投影助手未连接";return;}
+        if(livePreferred){reset();closeWindow();status=now<liveUntil?(global?"连续投影已就绪，等待亮屏":"连续投影已就绪，等待桌面或锁屏"):"连续投影助手未连接";return;}
         if(now<mirrorObserveUntil){reset();closeWindow();return;}
         if(d==null || d.getState()!=Display.STATE_ON || !home) {reset();closeWindow();scene="";return;}
         Point size=new Point();d.getRealSize(size);
@@ -233,8 +244,27 @@ public final class ProjectionService extends AccessibilityService implements Sen
     }
     static void stop() {ProjectionService service=instance;if(service!=null)service.main.post(service::disableSelf);}
     @Override public void onAccessibilityEvent(AccessibilityEvent e){update();}
+    @Override public void onMotionEvent(MotionEvent e){
+        long now=SystemClock.uptimeMillis();
+        if(!AnimationSettings.swipeRestore||!touchObservation.ready()||!allowed||!e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)
+                ||e.getPointerCount()!=1||now-e.getEventTime()<0||now-e.getEventTime()>500){fingerSwipe.reset();return;}
+        int action=e.getActionMasked(),id=e.getPointerId(0),screen=TouchObservation.displayId(e);
+        if(screen!=Display.DEFAULT_DISPLAY){fingerSwipe.reset();return;}
+        if(action==MotionEvent.ACTION_DOWN){fingerSwipe.down(id,screen,e.getX(),e.getY(),e.getEventTime());return;}
+        if(action!=MotionEvent.ACTION_MOVE){fingerSwipe.reset();return;}
+        float threshold=Math.max(ViewConfiguration.get(this).getScaledTouchSlop()*2,20*getResources().getDisplayMetrics().density);
+        boolean swiped=false;
+        for(int i=0;i<e.getHistorySize()&&!swiped;i++)swiped=fingerSwipe.move(id,screen,e.getHistoricalX(0,i),e.getHistoricalY(0,i),e.getHistoricalEventTime(i),threshold);
+        if(!swiped)swiped=fingerSwipe.move(id,screen,e.getX(),e.getY(),e.getEventTime(),threshold);
+        if(swiped){
+            Log.i("ProjectionTouch","FINGER_SWIPE");
+            if(holdGate.restore(now,hinge,connected&&allowed&&mirrorFold&&now<mirrorUntil)){
+                Log.i("ProjectionHold","FINGER_RESTORE angle="+hinge);update();
+            }
+        }
+    }
     @Override public void onInterrupt(){reset();}
     public void onSensorChanged(SensorEvent e){if(Float.isFinite(e.values[0])){hinge=e.values[0];update();}}
     public void onAccuracyChanged(Sensor sensor,int accuracy){}
-    @Override public void onDestroy(){connected=false;instance=null;allowed=false;updatedAt=0;status="已停用";MobileHelper.stop();main.removeCallbacks(tick);if(mirrorPreview!=null){mirrorPreview.close();mirrorPreview=null;}reset();closeWindow();sensors.unregisterListener(this);displays.unregisterDisplayListener(displayListener);worker.shutdown();super.onDestroy();}
+    @Override public void onDestroy(){touchObservation.close();connected=false;instance=null;allowed=false;updatedAt=0;status="已停用";MobileHelper.stop();main.removeCallbacks(tick);if(mirrorPreview!=null){mirrorPreview.close();mirrorPreview=null;}reset();closeWindow();sensors.unregisterListener(this);displays.unregisterDisplayListener(displayListener);worker.shutdown();super.onDestroy();}
 }

@@ -156,6 +156,8 @@ public final class LiveMirrorWindowProbe {
             int pos=GLES20.glGetAttribLocation(program,"pos");GLES20.glEnableVertexAttribArray(pos);GLES20.glVertexAttribPointer(pos,2,GLES20.GL_FLOAT,false,0,vertices);GLES20.glUniform1i(GLES20.glGetUniformLocation(program,"source"),0);GLES20.glViewport(0,0,width,height);
             int frames=0,sourceFrames=0;float[] matrix=new float[16];boolean saved=false,hasTexture=false;
             long pollAt=0,lastDraw=0;Bundle geometry=null;String previousGeometry="";float eased=Float.NaN;
+            FoldReturnMotion returnMotion=new FoldReturnMotion();
+            boolean wasHeld=false,returnComplete=false;
             while(!stopped&&(continuous||SystemClock.uptimeMillis()-start<durationMs)){
                 long now=SystemClock.uptimeMillis();
                 if(continuous)renew();
@@ -175,6 +177,13 @@ public final class LiveMirrorWindowProbe {
                     float step=lastDraw==0?1:(float)(1-Math.exp(-(now-lastDraw)/28.0));if(!Float.isFinite(eased))eased=angle;eased+=(angle-eased)*step;
                     float tilt=Math.min(85,Math.max(0,inner?180-eased:eased));
                     float opacity=Math.min(1,Math.max(0,inner?(175-angle)/10:(angle-3)/5));
+                    boolean held=geometry.getBoolean("foldHeld");
+                    if(held!=wasHeld){System.out.println("HOLD_"+(held?"RETURN_START":"RESUME")+" angle="+angle);wasHeld=held;returnComplete=false;}
+                    float amount=returnMotion.update(now,held);
+                    if(held&&amount==0&&!returnComplete){System.out.println("HOLD_RETURN_COMPLETE angle="+angle);returnComplete=true;}
+                    // Reverse the projection itself; fade only its final, nearly flat frames.
+                    tilt*=amount;
+                    opacity*=FoldReturnMotion.coverage(amount);
                     GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"tilt"),(float)Math.toRadians(tilt));
                     GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"inner"),inner?1:0);
                     GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"turn"),inner?(rotation+1)%4:rotation);
