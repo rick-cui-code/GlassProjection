@@ -187,7 +187,7 @@ public final class LiveMirrorWindowProbe {
                     if(!key.equals(previousGeometry)){System.out.println("OUTPUT_GEOMETRY elapsedMs="+(now-start)+" "+key+" angle="+angle+" frames="+frames);previousGeometry=key;eased=angle;}
                     float step=lastDraw==0?1:(float)(1-Math.exp(-(now-lastDraw)/28.0));if(physicallyBlocked||!Float.isFinite(eased))eased=angle;eased+=(angle-eased)*step;
                     float tilt=Math.min(85,Math.max(0,inner?180-eased:eased));
-                    float opacity=Math.min(1,Math.max(0,inner?(175-angle)/10:(angle-3)/5));
+                    float opacity=io.github.sixzleo.tabfold.projection.ProjectionMath.endpointOpacity(angle,inner,geometry.getInt("startAngle",1),physicallyBlocked);
                     boolean held=geometry.getBoolean("foldHeld");
                     if(held!=wasHeld){System.out.println("HOLD_"+(held?"RETURN_START":"RESUME")+" angle="+angle);wasHeld=held;returnComplete=false;}
                     float amount=returnMotion.update(now,held,physicallyBlocked);

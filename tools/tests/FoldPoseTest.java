@@ -30,6 +30,30 @@ public final class FoldPoseTest {
         FoldPose unsupported=new FoldPose(false).withAngle(45).withFoldStatus(1);
         check(!unsupported.blocksProjection()&&unsupported.angle()==45,"unsupported sensor preserves existing behavior");
         check(new FoldPose(true).blocksProjection(),"service restart waits for a fresh physical event");
+        pose=new FoldPose(true,true).withAngle(19);
+        check(pose.blocksProjection(),"contact profile starts blocked");
+        // Captured while already visibly open: coarse CLOSED, contact released.
+        pose=pose.withFoldEvent(new float[]{1,11,1,2,0,3,-.0125f,-.0171f,-477.45f,681,1630});
+        check(pose.foldStatus==1&&pose.contactStatus==1&&!pose.blocksProjection()&&pose.angle()==19,"small opening overrides coarse closed range");
+        check(ProjectionMath.endpointOpacity(pose.angle(),false,1,pose.blocksProjection())==1,"reported 19 degree opening renders");
+        pose=pose.withAngle(2);
+        check(ProjectionMath.endpointOpacity(pose.angle(),false,1,pose.blocksProjection())>0,"contact release allows low-angle fade");
+        // Captured full closure plus tilt: noisy hinge, contact remains 0.
+        pose=pose.withFoldEvent(new float[]{1,10,0,2,0,1,.1463f,-.9529f,-1808.7f,681,1630});
+        for(float raw:new float[]{0,7,10,11,19,30,36}){
+            pose=pose.withAngle(raw);
+            check(pose.blocksProjection()&&pose.angle()==0,"contact closure suppresses entire tilt range");
+        }
+        pose=pose.withFoldEvent(new float[]{0,90,0,2,2,3,0,0,-1800,681,1630});
+        check(pose.blocksProjection(),"contact closure wins over stale coarse OPEN");
+        pose=pose.withFoldEvent(new float[]{0,90,Float.NaN,2,2,3,0,0,-1800,681,1630});
+        check(pose.blocksProjection(),"invalid contact keeps last known closure");
+        pose=pose.withFoldEvent(new float[]{0,90});
+        check(pose.blocksProjection(),"short event does not discard valid contact state");
+        FoldPose legacy=new FoldPose(true).withAngle(19).withFoldEvent(new float[]{1,11,1,2,0,3,0,0,-328,681,1630});
+        check(legacy.contactStatus==-2&&legacy.blocksProjection(),"unvalidated devices ignore vendor contact field");
+        check(!new FoldPose(true,true).withFoldEvent(new float[]{0}).blocksProjection(),"missing contact field falls back to coarse state");
+        System.out.println("PASS: captured small-opening/contact-closure replay, low-angle fade, invalid contact and device fallback");
         System.out.println("PASS: closed tilt replay, startup, immediate opening, handoff, delayed hinge, invalid events and fallback");
     }
 }

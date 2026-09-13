@@ -5,6 +5,7 @@ import java.util.ArrayDeque;
 /** A full sliding window, not the difference between just its endpoints. */
 final class FoldHoldGate {
     private long windowMs=3000;
+    private int startAngle=1;
     private static final float SWING=10f;
     private static final class Sample {
         final long time;final float angle;
@@ -18,12 +19,17 @@ final class FoldHoldGate {
         long next=Math.max(1,Math.min(10,seconds))*1000L;
         if(next!=windowMs){windowMs=next;samples.clear();last=-1;}
     }
+    void configure(int seconds,int angle){
+        configure(seconds);
+        int next=ProjectionMath.clampStartAngle(angle);
+        if(next!=startAngle){startAngle=next;samples.clear();last=-1;}
+    }
     boolean restore(long now,float angle,boolean eligible){
-        if(!eligible||held||!Float.isFinite(angle)||angle<=3||angle>=175)return false;
+        if(!eligible||held||!Float.isFinite(angle)||angle<=startAngle||angle>=175)return false;
         held=true;anchor=angle;last=now;samples.clear();return true;
     }
     boolean update(long now,float angle,boolean eligible){
-        if(!eligible||!Float.isFinite(angle)||angle<=3||angle>=175){reset();return false;}
+        if(!eligible||!Float.isFinite(angle)||angle<=startAngle||angle>=175){reset();return false;}
         if(last>=0&&(now<last||now-last>1000))reset();
         last=now;
         if(held){

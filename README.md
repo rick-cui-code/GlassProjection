@@ -4,9 +4,9 @@
 
 [下载 APK](https://github.com/spideytznn/GlassProjection/releases/latest) · [使用教程](docs/USAGE.zh-CN.md) · [构建与原理](docs/DEVELOPMENT.zh-CN.md) · [开源许可](LICENSE)
 
-**当前版本：0.3.17。需要无障碍权限和以无线调试方式启动的 Shizuku，无需 root，也无需电脑持续连接。**
+**当前版本：0.3.19。需要无障碍权限和以无线调试方式启动的 Shizuku，无需 root，也无需电脑持续连接。**
 
-> **安装后需要重启手机一次，再重新启动 Shizuku、检查并开启「玻璃投影」无障碍服务。** 从旧版升级前，请先点「暂停动画」。旧版遗留的投影层可能造成锁屏与桌面重叠，覆盖安装本身无法清除这些残影；重启用于清理它们。详见 [v0.3.17 更新说明](docs/RELEASE-v0.3.17.md)。
+> **安装后需要重启手机一次，再重新启动 Shizuku、检查并开启「玻璃投影」无障碍服务。** 从旧版升级前，请先点「暂停动画」。旧版遗留的投影层可能造成锁屏与桌面重叠，覆盖安装本身无法清除这些残影；重启用于清理它们。详见 [v0.3.19 更新说明](docs/RELEASE-v0.3.19.md)。
 
 > 这是针对特定小米折叠屏调试的实验性实现，不是通用折叠屏插件。当前仅在 Xiaomi `2608BPX34C / lhasa`、Android 17 / HyperOS 4.0.11.0 上验证。其他型号、系统版本、屏幕尺寸与设备状态编号可能不同，不应假定直接兼容。
 
@@ -15,6 +15,7 @@
 - **实时桌面投影**：使用系统画面的实时镜像，动态桌面内容可以持续更新。
 - **内外屏分别处理**：内屏只处理左半屏，右半屏保留原画面；外屏有对应的开合效果。
 - **随距离变化的模糊**：包含黑色边缘的柔和过渡；模糊强度可调。
+- **自定义动画起点**：默认从 1° 开始渐入，可调 1–30°；测试机型用接触分离状态区分小角度展开与完全合拢。
 - **自定义切屏角度**：展开和合拢分别设置，支持中途反向开合。
 - **可选全局启用**：默认作用于桌面与亮屏锁屏；开启「作用范围 → 全局启用」后，在应用内也显示开合效果。
 - **悬停恢复正常**：角度摆幅不超过 10° 持续达到设定时间后，平滑回放至正常画面；等待时间可调 1～10 秒，默认 3 秒。
@@ -27,7 +28,7 @@
 
 ## 安装与使用
 
-1. 升级用户先在旧版点 **暂停动画**，确认本应用无障碍已关闭。从 [Releases](https://github.com/spideytznn/GlassProjection/releases) 下载 `GlassProjection-0.3.17.apk` 并安装。
+1. 升级用户先在旧版点 **暂停动画**，确认本应用无障碍已关闭。从 [Releases](https://github.com/spideytznn/GlassProjection/releases) 下载 `GlassProjection-0.3.19.apk` 并安装。
 2. **安装后重启手机一次**，清理旧版可能遗留的锁屏 / 桌面投影层。
 3. 安装或重新打开 [Shizuku](https://shizuku.rikka.app/)，按其[官方教程](https://shizuku.rikka.app/guide/setup/)开启开发者选项、USB 调试和无线调试，在手机上完成配对并启动服务。小米还需要开启单独的 **USB 调试（安全设置）**。重启后需要重新启动 Shizuku。
 4. 打开桌面的 **玻璃投影**，点 **连接 / 授权 Shizuku**，允许本应用使用 Shizuku。本版本使用 ADB / shell 模式，不支持 Shizuku 的 root 启动模式。
@@ -40,6 +41,7 @@
 | 设置 | 默认值 | 可调范围 |
 | --- | --- | --- |
 | 模糊强度 | 100% | 0–200% |
+| 动画起始角度 | 1° | 1–30° |
 | 展开时切到内屏 | 60° | 10–170° |
 | 合拢时切到外屏 | 120° | 10–170° |
 | 全局启用 | 关闭 | 开 / 关 |
@@ -89,7 +91,7 @@ projection-lab/build/outputs/apk/debug/projection-lab-debug.apk
 
 仓库包含两份经过实机验证的助手 DEX 及其完整 Java 源码。修改 `tools/helpers/` 后，须先运行 `python tools/build_helpers.py` 更新内置 DEX，再构建 APK。`python tools/build_helpers.py --check` 可以校验源码重建结果；`python tools/test_models.py` 运行几何、场景和切屏方向测试。
 
-**v0.3.17 Release 附件是当前已安装并验证的 APK，采用 debug 构建签名。** 发布时不重新签名，附件提供 SHA-256 校验值。自己构建的 debug APK 通常使用不同密钥，可能无法直接覆盖安装 Release。仓库不提供私钥或本机调试密钥。详见[构建说明](docs/DEVELOPMENT.zh-CN.md)。
+**v0.3.19 Release 附件是当前已安装并验证的 APK，采用 debug 构建签名。** 发布时不重新签名，附件提供 SHA-256 校验值。自己构建的 debug APK 通常使用不同密钥，可能无法直接覆盖安装 Release。仓库不提供私钥或本机调试密钥。详见[构建说明](docs/DEVELOPMENT.zh-CN.md)。
 
 ## 隐私与权限
 

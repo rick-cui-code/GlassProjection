@@ -23,6 +23,7 @@ public final class ProjectionProvider extends ContentProvider {
             b.putBoolean("lockScreen",ProjectionService.lockScreen);
             b.putBoolean("standby",ProjectionService.standby);
             b.putInt("openAngle",AnimationSettings.openAngle);b.putInt("closeAngle",AnimationSettings.closeAngle);
+            b.putInt("startAngle",AnimationSettings.startAngle);
             b.putFloat("blurStrength",AnimationSettings.blurPercent/100f);
             b.putString("status",ProjectionService.status);return b;
         }

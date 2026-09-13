@@ -54,6 +54,18 @@ public final class FoldHoldGateTest {
         check(gate.update(3000,120,true),"new timer expires");
         gate.configure(10);
         check(gate.update(3020,120,true),"time change does not reanimate restored screen");
+        gate=new FoldHoldGate();gate.configure(1,1);
+        for(int t=0;t<1000;t+=20)check(!gate.update(t,2,true),"low angle full hold window");
+        check(gate.update(1000,2,true),"new 1 degree onset supports low-angle hold");
+        check(!gate.update(1020,1,true),"configured endpoint clears hold");
+        check(!gate.restore(1040,1,true),"no swipe restore at invisible endpoint");
+        check(gate.restore(1060,2,true),"swipe restore in new low-angle animation range");
+        gate.configure(1,10);
+        check(!gate.update(1080,2,true),"raising onset clears out-of-range hold");
+        for(int t=1100;t<2100;t+=20)check(!gate.update(t,12,true),"fresh hold window above new onset");
+        check(gate.update(2100,12,true),"hold at adjusted onset");
+        gate.configure(1,1);
+        check(gate.update(2120,12,true),"lowering onset preserves restored pose");
         System.out.println("PASS: 3 second range, jitter, round trips, resume, endpoints, sleep and invalid samples");
         System.out.println("PASS: 1/3/10 second windows, timer edits, scroll restore, ignored events and stable resume anchor");
     }

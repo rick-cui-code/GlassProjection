@@ -70,6 +70,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
         b.putBoolean("standby",standby);
         b.putBoolean("foldHeld",s.foldHeld);
         b.putFloat("blurStrength",AnimationSettings.blurPercent/100f);
+        b.putInt("startAngle",AnimationSettings.startAngle);
         b.putInt("screenWidth",p.x);b.putInt("screenHeight",p.y);b.putInt("state",d.getState());putFoldPose(b);
         return b;
     }
@@ -77,6 +78,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
         FoldPose pose=foldPose;
         b.putFloat("angle",pose.angle());b.putFloat("rawAngle",pose.rawAngle);
         b.putInt("foldStatus",pose.foldStatus);b.putBoolean("projectionBlocked",pose.blocksProjection());
+        b.putInt("contactStatus",pose.contactStatus);
     }
     static void mirrorTest(int seconds){ProjectionService s=instance;if(s!=null)s.main.post(()->{
         s.mirrorFold=false;
@@ -102,7 +104,9 @@ public final class ProjectionService extends AccessibilityService implements Sen
             if(!"fold_status FOLD_STATUS Wakeup".equals(candidate.getName()))continue;
             physicalFoldSensor=candidate;break;
         }
-        foldPose=new FoldPose(physicalFoldSensor!=null);
+        // The coarse flag stays CLOSED until about 31 degrees on lhasa.
+        // Only this device's contact field has been checked against real closure/tilt.
+        foldPose=new FoldPose(physicalFoldSensor!=null,"lhasa".equals(Build.DEVICE));
         if(physicalFoldSensor!=null&&!sensors.registerListener(this,physicalFoldSensor,20000)){
             physicalFoldSensor=null;foldPose=new FoldPose(false);
         }
@@ -140,7 +144,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
     }
     private static String key(Display d,Point p) {return d.getMode().getPhysicalWidth()+"x"+d.getMode().getPhysicalHeight()+":"+d.getRotation()+":"+p.x+"x"+p.y;}
     private static boolean inner(Display d) {return Math.min(d.getMode().getPhysicalWidth(),d.getMode().getPhysicalHeight())>=1600;}
-    private boolean motion() {return !foldPose.blocksProjection()&&Float.isFinite(hinge) && (primaryInner?hinge<175:hinge>3);}
+    private boolean motion() {return ProjectionMath.endpointOpacity(hinge,primaryInner,AnimationSettings.startAngle,foldPose.blocksProjection())>0;}
     private long[] geometry() {
         long[] value={17,0};AccessibilityNodeInfo root=getRootInActiveWindow();
         if(root!=null)try{if(root.getPackageName()!=null && homes.contains(root.getPackageName().toString()))collect(root,value,0);}finally{root.recycle();}
@@ -163,7 +167,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
         boolean locked=getSystemService(KeyguardManager.class).isKeyguardLocked();
         lockScreen=global?locked&&!standby:livePreferred&&lockGate.visible(locked,!standby,locked&&!standby?lockWindowState():0,now);
         allowed=d!=null&&!standby&&(global || home || lockScreen || (homeUncertain && now-lastHomeAt<1000));updatedAt=now;
-        holdGate.configure(AnimationSettings.holdSeconds);
+        holdGate.configure(AnimationSettings.holdSeconds,AnimationSettings.startAngle);
         boolean held=holdGate.update(now,hinge,allowed);
         if(held!=foldHeld){foldHeld=held;Log.i("ProjectionHold",(held?"RETURN_TO_NORMAL":"FOLLOW_HINGE")+" angle="+hinge);}
         if(mirrorFold&&now<mirrorUntil&&allowed&&d!=null){
@@ -286,13 +290,13 @@ public final class ProjectionService extends AccessibilityService implements Sen
     public void onSensorChanged(SensorEvent e){
         if(e.values.length==0)return;
         FoldPose before=foldPose,next=before;
-        if(e.sensor==physicalFoldSensor)next=before.withFoldStatus(e.values[0]);
+        if(e.sensor==physicalFoldSensor)next=before.withFoldEvent(e.values);
         else if(e.sensor.getType()==Sensor.TYPE_HINGE_ANGLE)next=before.withAngle(e.values[0]);
         if(next==before)return;
         foldPose=next;
-        if(next.foldStatus!=before.foldStatus){
+        if(next.foldStatus!=before.foldStatus||next.contactStatus!=before.contactStatus){
             fingerSwipe.reset();
-            Log.i("ProjectionFold","PHYSICAL status="+next.foldStatus+" rawAngle="+next.rawAngle+" blocked="+next.blocksProjection());
+            Log.i("ProjectionFold","PHYSICAL status="+next.foldStatus+" contact="+next.contactStatus+" rawAngle="+next.rawAngle+" blocked="+next.blocksProjection());
         }
         update();
     }

@@ -37,23 +37,27 @@ Windows 使用 `gradlew.bat`。Python 脚本仅需 Python 3.10+ 标准库。`--c
 
 ## 当前 Release 的二进制来源
 
-v0.3.17 发布当前已安装、已验证的 debug APK，不重新签名。SHA-256：
+v0.3.19 发布当前已安装、已验证的 debug APK，不重新签名。SHA-256：
 
 ```text
-c38c0e1d2b4efcf16f4d3abb7559fc377bde0a27bb3ae8c35703d709dd430848  GlassProjection-0.3.17.apk
-bbfd49255231603340bd89fffe2bef384cd43defdcb9480931b26415dbe34308  live.dex
+dba73fd85c6295078f12234442aae5a6bc5581a87b9ad63339c5ce2801524297  GlassProjection-0.3.19.apk
+1a86d91ce8ba6de667c24420b8ab5e6b773463285a2a0c9da1eafe7360179cc5  live.dex
 2da8789e5157c684c6e4a594b673425411850e43c413df3be0a2a458fcbea470  controller.dex
 ```
 
-`python tools/audit_publication.py --apk dist/GlassProjection-0.3.17.apk` 扫描待发布文件，并比较附件与本机构建的运行时代码、资源和清单。APK ZIP 时间戳、构建环境及签名密钥会影响整包字节；不承诺不同机器重建的 APK 与附件逐字节相同。私钥不纳入 Git。
+`python tools/audit_publication.py --apk dist/GlassProjection-0.3.19.apk` 扫描待发布文件，并比较附件与本机构建的运行时代码、资源和清单。APK ZIP 时间戳、构建环境及签名密钥会影响整包字节；不承诺不同机器重建的 APK 与附件逐字节相同。私钥不纳入 Git。
 
 早期 v0.3.12 Release 保持原样；v0.3.16 统一无障碍服务名称为「玻璃投影」，同步应用提示与使用教程；保留此前的全局范围、悬停恢复、真实手指滑动恢复及按钮反馈。详见[恢复选项](RESTORE-OPTIONS.zh-CN.md)。
 
 ## 运行路径
 
+v0.3.19 修正 v0.3.17 对粗粒度 `foldStatus` 的解释：测试设备 `Build.DEVICE=lhasa` 在已打开一条缝、铰链约 15–19° 时仍报告首值 1（系统 CLOSED）；此前保护错误屏蔽了这段真实开合。经用户配合执行「小角度展开 → 完全合拢并倾斜 → 打开一条缝」，同一 `fold_status` 事件的 `values[2]` 依次为 1 → 0 → 1，实测可用于接触分离判断。`FoldPose` 仅在该机型和已匹配传感器上解码至少 11 项的事件，`contactStatus=0` 阻止投影、`1` 恢复原始角度；此字段是基于实机采集的适配，不是已获得厂商文档保证的通用协议。其他机型不读取该字段；缺少首个有效接触状态时使用原粗状态，后续短事件/无效值保留已知接触状态。两种 telemetry 均附带 `contactStatus`（-2 未适配、-1 未收到有效值）。新增测试回放这次误拦截和合拢倾斜数据。 v0.3.19 已安装实测：原始 2°/4° 且接触分离时允许投影；接触闭合、原始角度漂至 12° 时有效角度仍为 0°。用户确认小角度动画恢复、合拢倾斜无模糊。模型测试、Android 构建和 lint 通过。
+
+动画设置包含 `start_angle` 偏好，默认 1°、范围 1–30°；`mirror-frame` 与 `desktop-telemetry` 以 `startAngle` 传递。应用与实时助手共用 `ProjectionMath.endpointOpacity`，起点后 5° 内渐入；若切到内屏时还处于该范围，内屏也遵守这段渐入，避免提前切屏绕过设定起点。物理闭合门控始终优先。`FoldHoldGate` 使用相同起点，使低角度动画仍可悬停/滑动恢复；切屏控制器的方向判断保持独立。修改设置无需重启助手，恢复默认会还原起点。
+
 `ProjectionService` 负责作用范围判断、铰链数据、实时输出宿主和助手心跳。`MobileHelper` 在服务连接后绑定 Shizuku UserService；`MobileHelperHost` 以 shell UID 启动 APK 内置的两份 DEX，并检查它们是否存活。
 
-v0.3.17 增加物理闭合门控：在已验证的小米固件上订阅 `xiaomi.sensor.fold_status` / `fold_status FOLD_STATUS Wakeup`，其首值 `1` 表示闭合，`0` 表示打开。完全合拢时倾斜整机，`TYPE_HINGE_ANGLE` 曾实测跳到约 30°，所以不能只靠角度阈值判断闭合。物理闭合（或等待该传感器首个有效事件）期间，对渲染器和切屏控制器提供 0°，并显式禁止投影；渲染器同时清除缓动和悬停回放状态。打开后恢复原始角度跟随。传感器不可用时保留原有角度路径，不把其他机型的任意厂商传感器当作相同协议。
+v0.3.17 增加物理闭合门控：在已验证的小米固件上订阅 `xiaomi.sensor.fold_status` / `fold_status FOLD_STATUS Wakeup`，其首值 `1` 表示系统闭合范围，`0` 表示系统打开范围；这不等于两半机身是否完全接触，lhasa 的最终投影门控按上文接触状态处理。完全合拢时倾斜整机，`TYPE_HINGE_ANGLE` 曾实测跳到约 30°，所以不能只靠角度阈值判断闭合。物理闭合（或等待该传感器首个有效事件）期间，对渲染器和切屏控制器提供 0°，并显式禁止投影；渲染器同时清除缓动和悬停回放状态。打开后恢复原始角度跟随。传感器不可用时保留原有角度路径，不把其他机型的任意厂商传感器当作相同协议。
 
 `mirror-frame` / `desktop-telemetry` 的 `rawAngle` 保留原始角度，`angle` 为门控后的角度，`projectionBlocked` 表示禁止投影；`foldStatus` 为 `-2`（无可用传感器）、`-1`（等待首个事件）、`0`（打开）或 `1`（闭合）。无效事件不会解除已有的闭合状态。升级同步增加 Shizuku UserService 版本，使常驻助手加载新的内置 DEX。
 

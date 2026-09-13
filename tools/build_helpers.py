@@ -53,6 +53,8 @@ def main():
             compiled.mkdir(parents=True)
             dex.mkdir()
             sources = [ROOT / "tools/helpers" / (c + ".java") for c in classes]
+            if name == "live":
+                sources.append(ROOT / "projection-lab/src/main/java/io/github/sixzleo/tabfold/projection/ProjectionMath.java")
             run(javac, "-encoding", "UTF-8", "-cp", android, "-d", compiled, *sources)
             run(java, "-cp", d8, "com.android.tools.r8.D8", "--min-api", "33",
                 "--output", dex, *sorted(compiled.rglob("*.class")))

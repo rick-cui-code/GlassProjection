@@ -42,7 +42,7 @@ final class DesktopProjection extends View {
         float entrance=Math.min(1,(now-started)/80f);
         entrance=entrance*entrance*(3-2*entrance);
         shader.setFloatUniform("tilt",(float)Math.toRadians(ProjectionMath.tilt(smoothed,inner))*entrance);
-        float endpoint=inner?Math.min(1,Math.max(0,(175-angle)/10)):Math.min(1,Math.max(0,(angle-3)/5));
+        float endpoint=ProjectionMath.endpointOpacity(angle,inner,AnimationSettings.startAngle,ProjectionService.foldPose.blocksProjection());
         paint.setAlpha(Math.round(255*endpoint*entrance));
         int save=canvas.save();
         canvas.concat(GpuLayers.screenMatrix(canvas.getWidth(),canvas.getHeight(),inner,rotation,layers.width,layers.height));

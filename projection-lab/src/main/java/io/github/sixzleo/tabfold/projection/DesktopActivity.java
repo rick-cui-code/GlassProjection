@@ -20,7 +20,7 @@ public final class DesktopActivity extends Activity {
     private TextView state,hint;
     private TextView mobileStatus;
     private Button service;
-    private SeekBar blur,open,close,holdTime;
+    private SeekBar blur,open,close,holdTime,startAngle;
     private Switch swipeRestore;
     private final Runnable tick=new Runnable(){public void run(){refreshStatus();handler.postDelayed(this,700);}};
     private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
@@ -65,6 +65,8 @@ public final class DesktopActivity extends Activity {
         restore.addView(text("检测到手指滑动就立即回放，静态页面上也有效。轻点不触发，应用仍正常响应手势。",12,MUTED));
         section(page,"玻璃质感","调节雾化程度，保留原有的投影形状。");
         blur=slider(card(page),"模糊强度","100% 为当前默认效果；0% 关闭模糊。",0,200,5,AnimationSettings.blurPercent,"%",AnimationSettings::blur);
+        section(page,"动画起点","调节接近合拢时的渐入角度，不改变切屏时机。");
+        startAngle=slider(card(page),"动画起始角度","默认 1° · 可调 1–30°。超过设定角度后逐渐显现；合拢时反向淡出。完全合拢保护优先，实际起点受手机开合检测影响。",1,30,1,AnimationSettings.startAngle,"°",AnimationSettings::start);
         section(page,"切屏时机","展开与合拢分别设置，角度越小越接近合上。");
         LinearLayout angles=card(page);
         open=slider(angles,"展开时切到内屏","默认 60° · 可调 10–170°",10,170,1,AnimationSettings.openAngle,"°",AnimationSettings::open);
@@ -72,7 +74,7 @@ public final class DesktopActivity extends Activity {
         close=slider(angles,"合拢时切到外屏","默认 120° · 可调 10–170°",10,170,1,AnimationSettings.closeAngle,"°",AnimationSettings::close);
         space(page,12);button(page,"回到桌面体验",()->startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)),true);
         LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);page.addView(actions);
-        Button reset=button(actions,"恢复默认",()->{AnimationSettings.reset();blur.setProgress(20);open.setProgress(50);close.setProgress(110);holdTime.setProgress(2);swipeRestore.setChecked(false);refreshStatus();Toast.makeText(this,"已恢复：100% · 展开 60° · 合拢 120° · 悬停 3 秒",Toast.LENGTH_SHORT).show();},false);
+        Button reset=button(actions,"恢复默认",()->{AnimationSettings.reset();blur.setProgress(20);startAngle.setProgress(0);open.setProgress(50);close.setProgress(110);holdTime.setProgress(2);swipeRestore.setChecked(false);refreshStatus();Toast.makeText(this,"已恢复：100% · 起始 1° · 展开 60° · 合拢 120° · 悬停 3 秒",Toast.LENGTH_SHORT).show();},false);
         reset.setLayoutParams(new LinearLayout.LayoutParams(0,dp(52),1));
         Button pause=button(actions,"暂停动画",()->{ProjectionService.stop();refreshStatus();},false);pause.setLayoutParams(new LinearLayout.LayoutParams(0,dp(52),1));
         TextView foot=text("设置自动保存，下次开合生效。",12,MUTED);foot.setGravity(Gravity.CENTER);foot.setPadding(0,dp(15),0,0);page.addView(foot);
