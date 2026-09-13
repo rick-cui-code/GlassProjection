@@ -16,7 +16,9 @@ final class DesktopProjection extends View {
     float angle;
     private float smoothed;
     private final ProjectionEntrance entry=new ProjectionEntrance();
-    private long started,lastFrame;
+    private final ProjectionAngleMotion angleMotion=new ProjectionAngleMotion();
+    private long flatRequestedAt=-1;
+    private long started;
     private boolean closed;
     DesktopProjection(Context context,GpuLayers layers,boolean inner,int rotation,float angle) throws IOException {
         super(context);this.layers=layers;this.inner=inner;this.rotation=rotation;this.angle=angle;smoothed=angle;
@@ -41,9 +43,10 @@ final class DesktopProjection extends View {
         if(closed)return;
         long now=SystemClock.uptimeMillis();
         if(started==0) {started=now;android.util.Log.i("ProjectionDesktop","FIRST_DRAW inner="+inner+" angle="+angle);}
-        smoothed=lastFrame==0?angle:ProjectionMath.followAngle(smoothed,angle,now-lastFrame,inner);lastFrame=now;
-        boolean blocked=ProjectionService.foldPose.blocksProjection();
-        boolean visible=ProjectionMath.endpointOpacity(angle,inner,AnimationSettings.startAngle,blocked)>0;
+        FoldPose pose=ProjectionService.foldPose;
+        boolean blocked=ProjectionAngleMotion.hardBlocked(pose.blocksProjection(),pose.fullyOpened(),inner);
+        smoothed=angleMotion.update(now,angle,inner,pose.blocksProjection(),pose.fullyOpened(),false);
+        boolean visible=ProjectionMath.endpointOpacity(inner?smoothed:angle,inner,AnimationSettings.startAngle,blocked)>0;
         float entrance=entry.update(now,visible,false);
         float endpoint=ProjectionMath.endpointOpacity(smoothed,inner,AnimationSettings.startAngle,blocked);
         float motion=ProjectionMath.onsetMotion(endpoint,entrance);
@@ -56,5 +59,11 @@ final class DesktopProjection extends View {
         canvas.drawRect(0,0,layers.width,layers.height,paint);
         canvas.restoreToCount(save);postInvalidateOnAnimation();
     }
+    boolean finishFlat(long now){
+        angle=180;
+        if(flatRequestedAt<0)flatRequestedAt=now;
+        return now-flatRequestedAt<ProjectionAngleMotion.FLAT_RETURN_MS&&smoothed<175;
+    }
+    void follow(float target){angle=target;flatRequestedAt=-1;}
     void release() {closed=true;layers.close();}
 }

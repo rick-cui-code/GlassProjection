@@ -34,6 +34,12 @@ public final class FoldReturnMotionTest {
         near(motion.update(1000,false,false),1);
         near(motion.update(1020,false,true),0);
         near(motion.update(1040,true,false),0);
+        FoldReturnMotion held=new FoldReturnMotion();
+        near(held.update(0,true,false),0);
+        // Rendering retains the prior hold while flat even though logical telemetry clears it.
+        for(int t=10;t<=300;t+=10)near(held.update(t,true,false),0);
+        near(held.update(310,false,false),0);
+        if(held.update(390,false,false)<=0)throw new AssertionError("hold resumes only after a real fold");
         System.out.println("PASS: physical closure clears immediately and reopening discards old hold state");
         System.out.println("PASS: 220 ms neutral return, late fade, 160 ms resume, reversal continuity and held host restart");
     }

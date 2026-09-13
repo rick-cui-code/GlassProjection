@@ -116,6 +116,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
         b.putFloat("angle",pose.angle());b.putFloat("rawAngle",pose.rawAngle);
         b.putInt("foldStatus",pose.foldStatus);b.putBoolean("projectionBlocked",pose.blocksProjection());
         b.putInt("contactStatus",pose.contactStatus);
+        b.putInt("postureStatus",pose.postureStatus);b.putBoolean("fullyOpened",pose.fullyOpened());
     }
     static void mirrorTest(int seconds){ProjectionService s=instance;if(s!=null)s.main.post(()->{
         s.mirrorFold=false;
@@ -142,7 +143,8 @@ public final class ProjectionService extends AccessibilityService implements Sen
             physicalFoldSensor=candidate;break;
         }
         // The coarse flag stays CLOSED until about 31 degrees on lhasa.
-        // Only this device's contact field has been checked against real closure/tilt.
+        // Only this device's contact and posture fields have been checked
+        // against real closure, flat tilt, and folding.
         foldPose=new FoldPose(physicalFoldSensor!=null,"lhasa".equals(Build.DEVICE));
         if(physicalFoldSensor!=null&&!sensors.registerListener(this,physicalFoldSensor,20000)){
             physicalFoldSensor=null;foldPose=new FoldPose(false);
@@ -247,9 +249,12 @@ public final class ProjectionService extends AccessibilityService implements Sen
         if(!next.equals(scene)){reset();closeWindow();scene=next;attempts=0;}
         ensureWindow(d);
         if(window==null)return;
-        if(!motion()){if(overlay!=null || pending)reset();attempts=0;status="桌面投影已就绪";return;}
+        if(!motion()){
+            if(overlay!=null&&primaryInner&&foldPose.fullyOpened()&&overlay.finishFlat(now))return;
+            if(overlay!=null || pending)reset();attempts=0;status="桌面投影已就绪";return;
+        }
         long[] shape=geometry();
-        if(overlay!=null){overlay.angle=hinge;if(shape[1]>=8 && shape[0]!=shownSignature){reset();attempts=0;}else return;}
+        if(overlay!=null){overlay.follow(hinge);if(shape[1]>=8 && shape[0]!=shownSignature){reset();attempts=0;}else return;}
         if(!gate.observe(scene,shape[0],(int)shape[1],now) || pending || now<retryAt || attempts>=3)return;
         capture(d,size,shape[0]);
     }
@@ -341,9 +346,9 @@ public final class ProjectionService extends AccessibilityService implements Sen
         else if(e.sensor.getType()==Sensor.TYPE_HINGE_ANGLE)next=before.withAngle(e.values[0]);
         if(next==before)return;
         foldPose=next;
-        if(next.foldStatus!=before.foldStatus||next.contactStatus!=before.contactStatus){
+        if(next.foldStatus!=before.foldStatus||next.contactStatus!=before.contactStatus||next.postureStatus!=before.postureStatus||next.fullyOpened()!=before.fullyOpened()){
             fingerSwipe.reset();
-            Log.i("ProjectionFold","PHYSICAL status="+next.foldStatus+" contact="+next.contactStatus+" rawAngle="+next.rawAngle+" blocked="+next.blocksProjection());
+            Log.i("ProjectionFold","PHYSICAL status="+next.foldStatus+" contact="+next.contactStatus+" posture="+next.postureStatus+" rawAngle="+next.rawAngle+" blocked="+next.blocksProjection());
         }
         update();
     }

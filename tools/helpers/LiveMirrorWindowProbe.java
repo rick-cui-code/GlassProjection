@@ -184,9 +184,11 @@ public final class LiveMirrorWindowProbe {
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"hingeDistanceFraction"),io.github.sixzleo.tabfold.projection.ProjectionMath.OUTER_HINGE_DISTANCE_FRACTION);
             int pos=GLES20.glGetAttribLocation(program,"pos");GLES20.glEnableVertexAttribArray(pos);GLES20.glVertexAttribPointer(pos,2,GLES20.GL_FLOAT,false,0,vertices);GLES20.glUniform1i(GLES20.glGetUniformLocation(program,"source"),0);GLES20.glViewport(0,0,width,height);
             int frames=0,sourceFrames=0;float[] matrix=new float[16];boolean saved=false,hasTexture=false;
-            long pollAt=0,lastDraw=0;Bundle geometry=null;String previousGeometry="",previousDisplay="",pyramidGeometry="";float eased=Float.NaN;
+            long pollAt=0;Bundle geometry=null;String previousGeometry="",previousDisplay="",pyramidGeometry="";float eased=Float.NaN;
             FoldReturnMotion returnMotion=new FoldReturnMotion();
             io.github.sixzleo.tabfold.projection.ProjectionEntrance entrance=new io.github.sixzleo.tabfold.projection.ProjectionEntrance();
+            io.github.sixzleo.tabfold.projection.ProjectionAngleMotion angleMotion=new io.github.sixzleo.tabfold.projection.ProjectionAngleMotion();
+            boolean wasFullyOpened=false;
             io.github.sixzleo.tabfold.projection.CoverLayoutReady coverLayout=new io.github.sixzleo.tabfold.projection.CoverLayoutReady();
             float previousEntrance=0;
             boolean wasHeld=false,returnComplete=false;
@@ -218,7 +220,9 @@ public final class LiveMirrorWindowProbe {
                         pyramidGeometry=sourceGeometry;
                     }
                     float angle=geometry.getFloat("angle",Float.NaN);if(!Float.isFinite(angle))break;
-                    boolean physicallyBlocked=geometry.getBoolean("projectionBlocked");
+                    boolean fullyOpened=geometry.getBoolean("fullyOpened");
+                    boolean poseBlocked=geometry.getBoolean("projectionBlocked");
+                    boolean physicallyBlocked=io.github.sixzleo.tabfold.projection.ProjectionAngleMotion.hardBlocked(poseBlocked,fullyOpened,inner);
                     String key=sw+"x"+sh+":"+rotation+":"+inner;
                     String displayKey=key+":"+geometry.getInt("state");
                     now=SystemClock.uptimeMillis();
@@ -227,13 +231,13 @@ public final class LiveMirrorWindowProbe {
                         previousDisplay=displayKey;
                     }
                     boolean sceneChanged=!key.equals(previousGeometry);
-                    if(sceneChanged){previousGeometry=key;eased=angle;}
-                    if(physicallyBlocked||lastDraw==0)eased=angle;
-                    else eased=io.github.sixzleo.tabfold.projection.ProjectionMath.followAngle(eased,angle,now-lastDraw,inner);
+                    if(sceneChanged)previousGeometry=key;
+                    eased=angleMotion.update(now,angle,inner,poseBlocked,fullyOpened,sceneChanged);
+                    if(fullyOpened!=wasFullyOpened){System.out.println("FLAT_"+(fullyOpened?"RETURN":"RESUME")+" renderAngle="+eased+" rawAngle="+geometry.getFloat("rawAngle"));wasFullyOpened=fullyOpened;}
                     int startAngle=geometry.getInt("startAngle",1);
                     float tilt=io.github.sixzleo.tabfold.projection.ProjectionMath.effectTilt(eased,inner,startAngle,physicallyBlocked);
                     float endpoint=io.github.sixzleo.tabfold.projection.ProjectionMath.endpointOpacity(eased,inner,startAngle,physicallyBlocked);
-                    boolean visible=io.github.sixzleo.tabfold.projection.ProjectionMath.endpointOpacity(angle,inner,startAngle,physicallyBlocked)>0;
+                    boolean visible=io.github.sixzleo.tabfold.projection.ProjectionMath.endpointOpacity(inner?eased:angle,inner,startAngle,physicallyBlocked)>0;
                     long coverToken=geometry.getLong("coverToken");
                     boolean coverReady=coverLayout.update(now,coverToken,geometry.getLong("coverStartedAt"),
                         sw+"x"+sh+":"+rotation,geometry.getInt("state")==Display.STATE_ON,
@@ -250,7 +254,9 @@ public final class LiveMirrorWindowProbe {
                     if(visible&&entry==0&&(sceneChanged||previousEntrance>0))System.out.println("NEUTRAL_ENTRY angle="+angle);
                     if(entry==1&&previousEntrance<1)System.out.println("ENTRY_COMPLETE angle="+angle);
                     previousEntrance=entry;
-                    boolean held=geometry.getBoolean("foldHeld");
+                    // Flat telemetry resets the hold gate. Keep any visual hold
+                    // until folding resumes, so a hidden effect cannot reappear.
+                    boolean held=fullyOpened&&inner?wasHeld:geometry.getBoolean("foldHeld");
                     if(held!=wasHeld){System.out.println("HOLD_"+(held?"RETURN_START":"RESUME")+" angle="+angle);wasHeld=held;returnComplete=false;}
                     float amount=returnMotion.update(now,held,physicallyBlocked);
                     if(held&&amount==0&&!returnComplete){System.out.println("HOLD_RETURN_COMPLETE angle="+angle);returnComplete=true;}
@@ -277,7 +283,6 @@ public final class LiveMirrorWindowProbe {
                     float angle=(float)(.5-.5*Math.cos((now-start)/10000.0*Math.PI*2))*.65f;
                     GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"tilt"),angle);
                 }
-                lastDraw=now;
                 GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program,"tex"),1,false,matrix,0);
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
                 if(continuous){java.io.File request=new java.io.File("/data/local/tmp/tabfold-live.capture");if(request.exists()&&request.delete()){

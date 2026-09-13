@@ -54,7 +54,7 @@ def main():
             dex.mkdir()
             sources = [ROOT / "tools/helpers" / (c + ".java") for c in classes]
             if name == "live":
-                for model in ("ProjectionMath", "ProjectionEntrance", "CoverLayoutReady", "ScreenFade"):
+                for model in ("ProjectionMath", "ProjectionEntrance", "ProjectionAngleMotion", "CoverLayoutReady", "ScreenFade"):
                     sources.append(ROOT / "projection-lab/src/main/java/io/github/sixzleo/tabfold/projection" / (model + ".java"))
             run(javac, "-encoding", "UTF-8", "-cp", android, "-d", compiled, *sources)
             run(java, "-cp", d8, "com.android.tools.r8.D8", "--min-api", "33",
