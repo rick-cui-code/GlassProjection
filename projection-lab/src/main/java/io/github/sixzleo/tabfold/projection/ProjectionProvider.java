@@ -19,7 +19,7 @@ public final class ProjectionProvider extends ContentProvider {
         if("desktop-telemetry".equals(method)) {
             ProjectionService.helperAt=SystemClock.uptimeMillis();
             b.putLong("updatedAt",ProjectionService.updatedAt);b.putBoolean("allowed",ProjectionService.allowed);
-            b.putBoolean("primaryInner",ProjectionService.primaryInner);b.putFloat("angle",ProjectionService.hinge);
+            b.putBoolean("primaryInner",ProjectionService.primaryInner);ProjectionService.putFoldPose(b);
             b.putBoolean("lockScreen",ProjectionService.lockScreen);
             b.putBoolean("standby",ProjectionService.standby);
             b.putInt("openAngle",AnimationSettings.openAngle);b.putInt("closeAngle",AnimationSettings.closeAngle);

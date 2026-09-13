@@ -19,7 +19,8 @@ public final class ProjectionService extends AccessibilityService implements Sen
     static volatile ProjectionService instance;
     static volatile long updatedAt,helperAt;
     static volatile boolean allowed,primaryInner,lockScreen,standby;
-    static volatile float hinge=Float.NaN;
+    static volatile FoldPose foldPose=new FoldPose(false);
+    private float hinge=Float.NaN;
     static volatile String status="未开启";
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
@@ -31,6 +32,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
     private final TouchObservation touchObservation=new TouchObservation(this);
     private final FingerSwipeGate fingerSwipe=new FingerSwipeGate();
     private SensorManager sensors;
+    private Sensor physicalFoldSensor;
     private DisplayManager displays;
     private WindowManager manager;
     private FrameLayout window;
@@ -68,8 +70,13 @@ public final class ProjectionService extends AccessibilityService implements Sen
         b.putBoolean("standby",standby);
         b.putBoolean("foldHeld",s.foldHeld);
         b.putFloat("blurStrength",AnimationSettings.blurPercent/100f);
-        b.putInt("screenWidth",p.x);b.putInt("screenHeight",p.y);b.putInt("state",d.getState());b.putFloat("angle",hinge);
+        b.putInt("screenWidth",p.x);b.putInt("screenHeight",p.y);b.putInt("state",d.getState());putFoldPose(b);
         return b;
+    }
+    static void putFoldPose(Bundle b){
+        FoldPose pose=foldPose;
+        b.putFloat("angle",pose.angle());b.putFloat("rawAngle",pose.rawAngle);
+        b.putInt("foldStatus",pose.foldStatus);b.putBoolean("projectionBlocked",pose.blocksProjection());
     }
     static void mirrorTest(int seconds){ProjectionService s=instance;if(s!=null)s.main.post(()->{
         s.mirrorFold=false;
@@ -88,9 +95,20 @@ public final class ProjectionService extends AccessibilityService implements Sen
         sensors=getSystemService(SensorManager.class);displays=getSystemService(DisplayManager.class);
         ResolveInfo home=getPackageManager().resolveActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),0);
         if(home!=null && home.activityInfo!=null)homes.add(home.activityInfo.packageName);
+        // Match the vendor sensor used by this firmware's physical fold policy.
+        // Never infer closure from the active panel: our controller overrides that panel.
+        for(Sensor candidate:sensors.getSensorList(Sensor.TYPE_ALL)){
+            if(!"xiaomi.sensor.fold_status".equals(candidate.getStringType()))continue;
+            if(!"fold_status FOLD_STATUS Wakeup".equals(candidate.getName()))continue;
+            physicalFoldSensor=candidate;break;
+        }
+        foldPose=new FoldPose(physicalFoldSensor!=null);
+        if(physicalFoldSensor!=null&&!sensors.registerListener(this,physicalFoldSensor,20000)){
+            physicalFoldSensor=null;foldPose=new FoldPose(false);
+        }
         Sensor sensor=sensors.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE);if(sensor!=null)sensors.registerListener(this,sensor,20000);
         displays.registerDisplayListener(displayListener,main);status="已开启，等待桌面";main.post(tick);
-        Log.i("ProjectionDesktop","CONNECTED homes="+homes+" hinge only");
+        Log.i("ProjectionDesktop","CONNECTED homes="+homes+" physicalFold="+(physicalFoldSensor!=null));
         MobileHelper.start(this);
 
     }
@@ -122,7 +140,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
     }
     private static String key(Display d,Point p) {return d.getMode().getPhysicalWidth()+"x"+d.getMode().getPhysicalHeight()+":"+d.getRotation()+":"+p.x+"x"+p.y;}
     private static boolean inner(Display d) {return Math.min(d.getMode().getPhysicalWidth(),d.getMode().getPhysicalHeight())>=1600;}
-    private static boolean motion() {return Float.isFinite(hinge) && (primaryInner?hinge<175:hinge>3);}
+    private boolean motion() {return !foldPose.blocksProjection()&&Float.isFinite(hinge) && (primaryInner?hinge<175:hinge>3);}
     private long[] geometry() {
         long[] value={17,0};AccessibilityNodeInfo root=getRootInActiveWindow();
         if(root!=null)try{if(root.getPackageName()!=null && homes.contains(root.getPackageName().toString()))collect(root,value,0);}finally{root.recycle();}
@@ -136,6 +154,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
     }
     private void update() {
         if(!connected)return;
+        hinge=foldPose.angle();
         touchObservation.update(AnimationSettings.swipeRestore);
         long now=SystemClock.uptimeMillis();boolean global=AnimationSettings.globalEnabled;
         boolean home=!global&&home();if(home)lastHomeAt=now;
@@ -264,7 +283,19 @@ public final class ProjectionService extends AccessibilityService implements Sen
         }
     }
     @Override public void onInterrupt(){reset();}
-    public void onSensorChanged(SensorEvent e){if(Float.isFinite(e.values[0])){hinge=e.values[0];update();}}
+    public void onSensorChanged(SensorEvent e){
+        if(e.values.length==0)return;
+        FoldPose before=foldPose,next=before;
+        if(e.sensor==physicalFoldSensor)next=before.withFoldStatus(e.values[0]);
+        else if(e.sensor.getType()==Sensor.TYPE_HINGE_ANGLE)next=before.withAngle(e.values[0]);
+        if(next==before)return;
+        foldPose=next;
+        if(next.foldStatus!=before.foldStatus){
+            fingerSwipe.reset();
+            Log.i("ProjectionFold","PHYSICAL status="+next.foldStatus+" rawAngle="+next.rawAngle+" blocked="+next.blocksProjection());
+        }
+        update();
+    }
     public void onAccuracyChanged(Sensor sensor,int accuracy){}
     @Override public void onDestroy(){touchObservation.close();connected=false;instance=null;allowed=false;updatedAt=0;status="已停用";MobileHelper.stop();main.removeCallbacks(tick);if(mirrorPreview!=null){mirrorPreview.close();mirrorPreview=null;}reset();closeWindow();sensors.unregisterListener(this);displays.unregisterDisplayListener(displayListener);worker.shutdown();super.onDestroy();}
 }

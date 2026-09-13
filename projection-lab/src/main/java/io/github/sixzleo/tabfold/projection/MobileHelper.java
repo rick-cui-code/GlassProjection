@@ -23,7 +23,7 @@ final class MobileHelper {
     };
     static void init(Context c){
         if(initialized)return;initialized=true;context=c.getApplicationContext();
-        arguments=new Shizuku.UserServiceArgs(new ComponentName(context,MobileHelperHost.class)).daemon(true).processNameSuffix("glass_helpers").tag("glass_helpers").version(3);
+        arguments=new Shizuku.UserServiceArgs(new ComponentName(context,MobileHelperHost.class)).daemon(true).processNameSuffix("glass_helpers").tag("glass_helpers").version(5);
         Shizuku.addBinderReceivedListenerSticky(()->{message="Shizuku 已启动";schedule();});
         Shizuku.addBinderDeadListener(()->{host=null;binding=false;message="Shizuku 已停止，请在手机上重新启动";});
         Shizuku.addRequestPermissionResultListener((code,result)->{if(code==312){message=result==PackageManager.PERMISSION_GRANTED?"已授权，正在连接":"未授予 Shizuku 权限";schedule();}});

@@ -43,7 +43,7 @@ def main():
     assets = ROOT / "projection-lab/src/main/assets/helpers"
     assets.mkdir(parents=True, exist_ok=True)
     groups = {
-        "live": ["LiveMirrorWindowProbe", "LiveBlurPyramid", "FoldReturnMotion"],
+        "live": ["LiveMirrorWindowProbe", "LiveBlurPyramid", "FoldReturnMotion", "OutputOwnerGuard"],
         "controller": ["EarlyDisplayHelper", "EarlyDisplayModel"],
     }
     with tempfile.TemporaryDirectory(prefix="helpers-", dir=build) as temp:

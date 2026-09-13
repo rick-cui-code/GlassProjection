@@ -14,6 +14,7 @@ final class MirrorPreview implements SurfaceHolder.Callback {
     private SurfaceControlViewHost host;
     private SurfaceControlViewHost.SurfacePackage hostPackage;
     private SurfaceControl displayControl;
+    private final Binder ownerToken=new Binder();
     private final SurfaceView view;
     private final int width,height,rotation;
     private volatile boolean ready;
@@ -70,6 +71,7 @@ final class MirrorPreview implements SurfaceHolder.Callback {
     }
     Bundle lease(){Bundle b=new Bundle();if(ready&&view.getHolder().getSurface().isValid()){
         b.putParcelable("surface",view.getHolder().getSurface());b.putParcelable("control",view.getSurfaceControl());
+        if(displayControl!=null){b.putParcelable("rootControl",displayControl);b.putBinder("ownerToken",ownerToken);}
         b.putInt("width",width);b.putInt("height",height);b.putInt("rotation",rotation);
         b.putInt("surfaceGeneration",created);
         b.putInt("canvasSize",displayAttached?width*2:0);

@@ -37,21 +37,27 @@ Windows 使用 `gradlew.bat`。Python 脚本仅需 Python 3.10+ 标准库。`--c
 
 ## 当前 Release 的二进制来源
 
-v0.3.16 发布当前已安装、已验证的 debug APK，不重新签名。SHA-256：
+v0.3.17 发布当前已安装、已验证的 debug APK，不重新签名。SHA-256：
 
 ```text
-e26d713a62955bde52f7cd486d753425d9a0f8399602e43f616f6f1a08892f29  GlassProjection-0.3.16.apk
-8e75e0a5acac99c53162cb59432f24c23adfe1dad217059de3a5a73d39a84f3d  live.dex
+c38c0e1d2b4efcf16f4d3abb7559fc377bde0a27bb3ae8c35703d709dd430848  GlassProjection-0.3.17.apk
+bbfd49255231603340bd89fffe2bef384cd43defdcb9480931b26415dbe34308  live.dex
 2da8789e5157c684c6e4a594b673425411850e43c413df3be0a2a458fcbea470  controller.dex
 ```
 
-`python tools/audit_publication.py --apk dist/GlassProjection-0.3.16.apk` 扫描待发布文件，并比较附件与本机构建的运行时代码、资源和清单。APK ZIP 时间戳、构建环境及签名密钥会影响整包字节；不承诺不同机器重建的 APK 与附件逐字节相同。私钥不纳入 Git。
+`python tools/audit_publication.py --apk dist/GlassProjection-0.3.17.apk` 扫描待发布文件，并比较附件与本机构建的运行时代码、资源和清单。APK ZIP 时间戳、构建环境及签名密钥会影响整包字节；不承诺不同机器重建的 APK 与附件逐字节相同。私钥不纳入 Git。
 
 早期 v0.3.12 Release 保持原样；v0.3.16 统一无障碍服务名称为「玻璃投影」，同步应用提示与使用教程；保留此前的全局范围、悬停恢复、真实手指滑动恢复及按钮反馈。详见[恢复选项](RESTORE-OPTIONS.zh-CN.md)。
 
 ## 运行路径
 
 `ProjectionService` 负责作用范围判断、铰链数据、实时输出宿主和助手心跳。`MobileHelper` 在服务连接后绑定 Shizuku UserService；`MobileHelperHost` 以 shell UID 启动 APK 内置的两份 DEX，并检查它们是否存活。
+
+v0.3.17 增加物理闭合门控：在已验证的小米固件上订阅 `xiaomi.sensor.fold_status` / `fold_status FOLD_STATUS Wakeup`，其首值 `1` 表示闭合，`0` 表示打开。完全合拢时倾斜整机，`TYPE_HINGE_ANGLE` 曾实测跳到约 30°，所以不能只靠角度阈值判断闭合。物理闭合（或等待该传感器首个有效事件）期间，对渲染器和切屏控制器提供 0°，并显式禁止投影；渲染器同时清除缓动和悬停回放状态。打开后恢复原始角度跟随。传感器不可用时保留原有角度路径，不把其他机型的任意厂商传感器当作相同协议。
+
+`mirror-frame` / `desktop-telemetry` 的 `rawAngle` 保留原始角度，`angle` 为门控后的角度，`projectionBlocked` 表示禁止投影；`foldStatus` 为 `-2`（无可用传感器）、`-1`（等待首个事件）、`0`（打开）或 `1`（闭合）。无效事件不会解除已有的闭合状态。升级同步增加 Shizuku UserService 版本，使常驻助手加载新的内置 DEX。
+
+显示器级挂载在当前固件上可能在应用进程被升级终止后残留最后一帧。`mirror-lease` 现在同时交付本应用的根图层句柄和所属进程 Binder；渲染助手的 `OutputOwnerGuard` 在进程死亡时隐藏并解除该根图层挂载，退出时也执行清理。渲染循环退出前提交透明帧。开发安装应先正常停用本服务，再覆盖安装并恢复原启用状态；旧版已经失去句柄的残留图层不属于新进程的 lease。
 
 `LiveMirrorWindowProbe` 取得实时镜像，将它送入 GPU 模糊金字塔，再按铰链角度投影。当前默认路径不按每个桌面页做静态截图缓存。`MirrorPreview` 通过 `SurfaceControlViewHost` 和显示器级无障碍挂载提供输出，避开此前窗口层级参与的部分系统淡入动画。输出不接收触控。滑动恢复由 TouchObservation 为本服务配置被动观察，FingerSwipeGate 判断位移；FoldHoldGate 统一管理悬停和滑动恢复状态，渲染器中的 FoldReturnMotion 平滑回放投影。
 

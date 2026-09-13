@@ -17,6 +17,7 @@ public final class LiveMirrorWindowProbe {
     static final String AUTHORITY="io.github.sixzleo.tabfold.projection.surface";
     static Surface leasedOutput;
     static SurfaceControl leasedControl;
+    static volatile OutputOwnerGuard ownerGuard;
     static int leasedCanvasSize;
     static Handler main;
     static volatile boolean stopped;
@@ -77,6 +78,7 @@ public final class LiveMirrorWindowProbe {
             while(SystemClock.uptimeMillis()<deadline){lease=call("mirror-lease",null);leasedOutput=lease.getParcelable("surface");if(leasedOutput!=null)break;Thread.sleep(20);}
             if(leasedOutput==null)throw new IllegalStateException("Desktop service/preview unavailable");
             leasedControl=lease.getParcelable("control");
+            guardOutput(lease);
             leasedCanvasSize=lease.getInt("canvasSize");
             try(SurfaceControl.Transaction t=new SurfaceControl.Transaction()){
                 SurfaceControl.Transaction.class.getMethod("setSkipScreenshot",SurfaceControl.class,boolean.class).invoke(t,leasedControl,true);t.apply();
@@ -94,9 +96,15 @@ public final class LiveMirrorWindowProbe {
         long now=SystemClock.uptimeMillis();progressAt=now;
         if(now>=renewAt){call("mirror-live","1");renewAt=now+500;}
     }
-    static void releaseOutput(){
+    static synchronized void releaseOutput(){
+        OutputOwnerGuard guard=ownerGuard;ownerGuard=null;if(guard!=null)guard.close();
         if(leasedControl!=null){leasedControl.release();leasedControl=null;}
         if(leasedOutput!=null){leasedOutput.release();leasedOutput=null;}
+    }
+    static void guardOutput(Bundle lease)throws RemoteException {
+        SurfaceControl root=lease.getParcelable("rootControl");IBinder owner=lease.getBinder("ownerToken");
+        if(root!=null&&owner!=null)ownerGuard=new OutputOwnerGuard(owner,root,()->stopped=true);
+        else if(root!=null)root.release();
     }
     static void runContinuous(){
         try{
@@ -105,6 +113,7 @@ public final class LiveMirrorWindowProbe {
                 leasedOutput=lease.getParcelable("surface");
                 if(leasedOutput==null){Thread.sleep(100);continue;}
                 leasedControl=lease.getParcelable("control");
+                guardOutput(lease);
                 leasedCanvasSize=lease.getInt("canvasSize");
                 try(SurfaceControl.Transaction t=new SurfaceControl.Transaction()){
                     SurfaceControl.Transaction.class.getMethod("setSkipScreenshot",SurfaceControl.class,boolean.class).invoke(t,leasedControl,true);t.apply();
@@ -120,12 +129,13 @@ public final class LiveMirrorWindowProbe {
     static void finish(){
         stopped=true;
         if(!finishing.compareAndSet(false,true))return;
+        OutputOwnerGuard guard=ownerGuard;if(guard!=null)guard.detach();
         if(main==null){System.exit(1);return;}
         try{
             if(providerCall!=null)call(continuous?"mirror-live":foldMode?"mirror-fold":"mirror-preview","0");
             if(providerToken!=null)Class.forName("android.app.IActivityManager").getMethod("removeContentProviderExternalAsUser",String.class,IBinder.class,int.class).invoke(am,AUTHORITY,providerToken,0);
         }catch(Throwable e){e.printStackTrace();}
-        if(leasedControl!=null)leasedControl.release();if(leasedOutput!=null)leasedOutput.release();
+        releaseOutput();
         System.out.println("CLEANED preview window");System.exit(failed?1:0);
     }
     static int shader(int type,String code){int s=GLES20.glCreateShader(type);GLES20.glShaderSource(s,code);GLES20.glCompileShader(s);int[] ok=new int[1];GLES20.glGetShaderiv(s,GLES20.GL_COMPILE_STATUS,ok,0);if(ok[0]==0)throw new IllegalStateException(GLES20.glGetShaderInfoLog(s));return s;}
@@ -172,14 +182,15 @@ public final class LiveMirrorWindowProbe {
                     if(geometry==null||!geometry.getBoolean("alive")||!geometry.getBoolean("allowed"))break;
                     boolean inner=geometry.getBoolean("inner");int rotation=geometry.getInt("rotation"),sw=geometry.getInt("screenWidth"),sh=geometry.getInt("screenHeight");
                     float angle=geometry.getFloat("angle",Float.NaN);if(!Float.isFinite(angle))break;
+                    boolean physicallyBlocked=geometry.getBoolean("projectionBlocked");
                     String key=sw+"x"+sh+":"+rotation+":"+inner+":"+geometry.getInt("state");
                     if(!key.equals(previousGeometry)){System.out.println("OUTPUT_GEOMETRY elapsedMs="+(now-start)+" "+key+" angle="+angle+" frames="+frames);previousGeometry=key;eased=angle;}
-                    float step=lastDraw==0?1:(float)(1-Math.exp(-(now-lastDraw)/28.0));if(!Float.isFinite(eased))eased=angle;eased+=(angle-eased)*step;
+                    float step=lastDraw==0?1:(float)(1-Math.exp(-(now-lastDraw)/28.0));if(physicallyBlocked||!Float.isFinite(eased))eased=angle;eased+=(angle-eased)*step;
                     float tilt=Math.min(85,Math.max(0,inner?180-eased:eased));
                     float opacity=Math.min(1,Math.max(0,inner?(175-angle)/10:(angle-3)/5));
                     boolean held=geometry.getBoolean("foldHeld");
                     if(held!=wasHeld){System.out.println("HOLD_"+(held?"RETURN_START":"RESUME")+" angle="+angle);wasHeld=held;returnComplete=false;}
-                    float amount=returnMotion.update(now,held);
+                    float amount=returnMotion.update(now,held,physicallyBlocked);
                     if(held&&amount==0&&!returnComplete){System.out.println("HOLD_RETURN_COMPLETE angle="+angle);returnComplete=true;}
                     // Reverse the projection itself; fade only its final, nearly flat frames.
                     tilt*=amount;
@@ -208,6 +219,14 @@ public final class LiveMirrorWindowProbe {
             System.out.println("PREVIEW frames="+frames+" sourceFrames="+sourceFrames+" elapsedMs="+(SystemClock.uptimeMillis()-start));
         }catch(Throwable error){failed=true;error.printStackTrace();}
         finally {
+            // Drop the last lock/home frame before abandoning an output surface.
+            if(display!=EGL14.EGL_NO_DISPLAY&&window!=EGL14.EGL_NO_SURFACE&&context!=EGL14.EGL_NO_CONTEXT){
+                if(EGL14.eglMakeCurrent(display,window,window,context)){
+                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER,0);
+                    GLES20.glClearColor(0,0,0,0);GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+                    EGL14.eglSwapBuffers(display,window);
+                }
+            }
             if(mirror!=null)mirror.release();if(input!=null)input.release();if(texture!=null)texture.release();
             if(pyramid!=null)pyramid.close();
             if(display!=EGL14.EGL_NO_DISPLAY){EGL14.eglMakeCurrent(display,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_CONTEXT);if(window!=EGL14.EGL_NO_SURFACE)EGL14.eglDestroySurface(display,window);if(context!=EGL14.EGL_NO_CONTEXT)EGL14.eglDestroyContext(display,context);EGL14.eglTerminate(display);}
