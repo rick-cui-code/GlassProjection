@@ -40,7 +40,7 @@ Windows 使用 `gradlew.bat`。Python 脚本仅需 Python 3.10+ 标准库。`--c
 v0.3.15 发布当前已安装、已验证的 debug APK，不重新签名。SHA-256：
 
 ```text
-971132567c727f9cfefac55471ac3c7ee1d878b5af58573f6e1fc4734eb6937b  GlassProjection-0.3.15.apk
+2a2a0ed8997abbd98baabe067b7cad682f8a2a94d1cf8242b02b8ab5abe58594  GlassProjection-0.3.15.apk
 8e75e0a5acac99c53162cb59432f24c23adfe1dad217059de3a5a73d39a84f3d  live.dex
 2da8789e5157c684c6e4a594b673425411850e43c413df3be0a2a458fcbea470  controller.dex
 ```

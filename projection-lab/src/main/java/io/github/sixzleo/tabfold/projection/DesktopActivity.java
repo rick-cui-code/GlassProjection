@@ -6,6 +6,8 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.os.*;
 import android.provider.Settings;
 import android.view.*;
@@ -91,7 +93,17 @@ public final class DesktopActivity extends Activity {
     private LinearLayout card(LinearLayout page){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(20),dp(20),dp(20),dp(20));c.setBackground(background(CARD,24));page.addView(c,new LinearLayout.LayoutParams(-1,-2));return c;}
     private void section(LinearLayout page,String title,String description){space(page,26);TextView h=text(title,19,TEXT);h.setTypeface(null,Typeface.BOLD);page.addView(h);TextView sub=text(description,13,MUTED);sub.setPadding(0,dp(6),0,dp(14));page.addView(sub);}
     private void space(LinearLayout parent,int height){parent.addView(new View(this),new LinearLayout.LayoutParams(1,dp(height)));}
-    private Button button(LinearLayout parent,String title,Runnable action,boolean filled){Button b=new Button(this);b.setText(title);b.setAllCaps(false);b.setTextSize(14);b.setTextColor(filled?BG:ACCENT);b.setBackgroundTintList(ColorStateList.valueOf(filled?ACCENT:Color.TRANSPARENT));b.setOnClickListener(v->action.run());parent.addView(b,new LinearLayout.LayoutParams(-1,dp(52)));return b;}
+    private Button button(LinearLayout parent,String title,Runnable action,boolean filled){
+        Button b=new Button(this);b.setText(title);b.setAllCaps(false);b.setTextSize(14);b.setTextColor(filled?BG:ACCENT);
+        // Tinting the entire platform background hides its ripple, especially with transparent tint.
+        StateListDrawable surface=new StateListDrawable();
+        surface.addState(new int[]{android.R.attr.state_pressed},background(filled?0xff79c7b5:0x33a4e6d6,14));
+        surface.addState(new int[]{android.R.attr.state_focused},background(filled?0xff8bd4c3:0x22a4e6d6,14));
+        surface.addState(new int[]{},background(filled?ACCENT:Color.TRANSPARENT,14));
+        b.setBackgroundTintList(null);
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(filled?0x3310191c:0x55a4e6d6),surface,background(Color.WHITE,14)));
+        b.setOnClickListener(v->action.run());parent.addView(b,new LinearLayout.LayoutParams(-1,dp(52)));return b;
+    }
     private SeekBar slider(LinearLayout card,String title,String description,int min,int max,int step,int initial,String unit,IntConsumer save){
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);card.addView(row);
         TextView label=text(title,16,TEXT);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
