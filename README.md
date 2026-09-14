@@ -4,13 +4,13 @@
 
 [下载 APK](https://github.com/spideytznn/GlassProjection/releases/latest) · [使用教程](docs/USAGE.zh-CN.md) · [构建与原理](docs/DEVELOPMENT.zh-CN.md) · [开源许可](LICENSE)
 
-**当前版本：0.4.16。新增内屏平展倾斜保护，展开过程保持角度跟随；无需安装 Shizuku，无需 root 或电脑持续连接。**
+**当前版本：0.4.17。修复闭合传感器异常时外屏倾斜误触发模糊；无需安装 Shizuku，无需 root 或电脑持续连接。**
 
-> **v0.4.11 及当前同签名测试版可直接覆盖升级，保留设置和配对身份。GitHub v0.4.0 与本版签名不同，不能直接覆盖。** 该旧版用户请先暂停动画、记录参数，再卸载旧版安装新版并重新配对。详见 [升级说明](docs/RELEASE-v0.4.16.md)。
+> **v0.4.17 使用新的本机 Debug 签名，不能直接覆盖 GitHub v0.4.11 / v0.4.16。** 如需安装，先暂停动画并记录参数，再卸载旧版、安装新版，重新配对和开启无障碍；卸载会清除设置和配对身份。本次同签名的闭合倾斜修复测试包可以覆盖升级。详见 [升级说明](docs/RELEASE-v0.4.17.md)。
 
-`v0.4.16` 在收到“已展开”且铰链读数达到 175° 后锁定平展保护，忽略整机倾斜造成的角度回落；之前继续原来的角度跟随，锁定时残留效果用 100 ms 快速归位。保留 v0.4.11 的本机无线配对与起步重影修复。0.3.19 的完整源码仍保留在 [`codex/legacy-v0.3.19`](https://github.com/spideytznn/GlassProjection/tree/codex/legacy-v0.3.19) 分支及 `v0.3.19` 标签。详细变更、升级顺序与验证范围见 [v0.4.16 更新说明](docs/RELEASE-v0.4.16.md)。
+`v0.4.17` 补齐闭合传感器缺失、注册失败或访问被拒绝时的保护：已适配的 `lhasa` 机型在缺少物理闭合信号时禁止投影，避免仅凭倾斜产生的角度读数启动模糊。正常小角度开合、内屏平展保护和本机无线配对保留。本次已通过代码回归检查，实机复测待完成。0.3.19 的完整源码仍保留在 [`codex/legacy-v0.3.19`](https://github.com/spideytznn/GlassProjection/tree/codex/legacy-v0.3.19) 分支及 `v0.3.19` 标签。详细变更、升级顺序与验证范围见 [v0.4.17 更新说明](docs/RELEASE-v0.4.17.md)。
 
-> **安装后需要重启手机一次，再打开无线调试、返回玻璃投影完成配对或自动连接，最后检查并开启无障碍服务。** 从旧版升级前，请先点「暂停动画」。旧版遗留的投影层可能造成锁屏与桌面重叠，覆盖安装本身无法清除这些残影；重启用于清理它们。详见 [v0.4.16 更新说明](docs/RELEASE-v0.4.16.md)。
+> **安装后需要重启手机一次，再打开无线调试、返回玻璃投影完成配对或自动连接，最后检查并开启无障碍服务。** 从旧版升级前，请先点「暂停动画」。旧版遗留的投影层可能造成锁屏与桌面重叠，覆盖安装本身无法清除这些残影；重启用于清理它们。详见 [v0.4.17 更新说明](docs/RELEASE-v0.4.17.md)。
 
 > 这是针对特定小米折叠屏调试的实验性实现，不是通用折叠屏插件。当前仅在 Xiaomi `2608BPX34C / lhasa`、Android 17 / HyperOS 4.0.11.0 上验证。其他型号、系统版本、屏幕尺寸与设备状态编号可能不同，不应假定直接兼容。
 
@@ -36,7 +36,7 @@
 
 ## 安装与使用
 
-1. 升级用户先在旧版点 **暂停动画**，确认本应用无障碍已关闭。从 [Releases](https://github.com/spideytznn/GlassProjection/releases) 下载 `GlassProjection-0.4.16.apk` 并安装。
+1. 升级用户先在旧版点 **暂停动画**，确认本应用无障碍已关闭。从 [Releases](https://github.com/spideytznn/GlassProjection/releases) 下载 `GlassProjection-0.4.17.apk`；按上方签名说明决定覆盖安装或记录参数后重装。
 2. **安装后重启手机一次**，清理旧版可能遗留的锁屏 / 桌面投影层。
 3. 若没有开发者选项，小米进入 **设置 → 我的设备 → 连续点击 OS 版本**，直到提示进入开发者模式。开启无线调试；小米还需要单独开启 **USB 调试（安全设置）**。
 4. 打开 **玻璃投影**，点 **配对**。没有记录时会打开配对小窗并跳到无线调试；在系统中选择使用配对码配对设备，把 6 位码填入小窗。应用自动连接并启动助手。已有有效记录时会提示无需重复配对。此前仅在 Shizuku 中配对过的用户，仍需为玻璃投影完成一次独立配对。
@@ -100,7 +100,7 @@ projection-lab/build/outputs/apk/debug/projection-lab-debug.apk
 
 仓库包含两份经过实机验证的助手 DEX 及其完整 Java 源码。修改 `tools/helpers/` 后，须先运行 `python tools/build_helpers.py` 更新内置 DEX，再构建 APK。`python tools/build_helpers.py --check` 可以校验源码重建结果；`python tools/test_models.py` 运行几何、场景和切屏方向测试。
 
-**v0.4.16 Release 附件是基于 `main` 的 debug 构建 APK，与 v0.4.11 和当前实机测试版同签名，与 GitHub v0.4.0 签名不同。** 附件提供 SHA-256 校验值。自己构建的 debug APK 通常使用不同密钥，可能无法直接覆盖安装 Release。仓库不提供私钥或本机调试密钥。v0.3.19 的历史附件及签名说明仍见[构建说明](docs/DEVELOPMENT.zh-CN.md)。
+**v0.4.17 Release 附件是基于 `main` 的 debug 构建 APK，使用新的本机签名，与 GitHub v0.4.11 / v0.4.16 不同。** 附件提供 SHA-256 校验值。自己构建的 debug APK 通常使用不同密钥，可能无法直接覆盖安装 Release。仓库不提供私钥或本机调试密钥。历史附件及签名说明仍见[构建说明](docs/DEVELOPMENT.zh-CN.md)。
 
 ## 隐私与权限
 
