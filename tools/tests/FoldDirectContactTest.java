@@ -9,6 +9,15 @@ public final class FoldDirectContactTest {
     private static final float[] STALE_CLOSED={1,13,0,2,0,3,0,0,-1940,681,1630};
     private static float[] field(float magnitude){float[] sample=CLOSED.clone();sample[3]=sample[4]=-magnitude;return sample;}
     public static void main(String[] args){
+        FoldPose missing=new FoldPose(false,true,true).withAngle(3,10);
+        check(missing.blocksProjection(),"missing coarse sensor still waits for direct Hall");
+        missing=missing.withDirectContactEvent(OPEN,11);
+        check(!missing.blocksProjection()&&missing.angle()==3,"fresh direct Hall supports small opening without coarse sensor");
+        missing=missing.withDirectContactAvailable(false).withAngle(30,12);
+        check(missing.blocksProjection()&&missing.angle()==0,"loss of both sources blocks hinge-only tilt");
+        missing=missing.withDirectContactAvailable(true).withDirectContactEvent(OPEN,13);
+        check(!missing.blocksProjection(),"restored direct Hall resumes tracking");
+
         FoldPose pose=new FoldPose(true,true,true).withAngle(5,10).withFoldEvent(STALE_OPEN,11);
         check(pose.blocksProjection(),"wait for the initial direct sample");
         pose=pose.withDirectContactEvent(CLOSED,12);

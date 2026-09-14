@@ -214,12 +214,20 @@ public final class ProjectionService extends AccessibilityService implements Sen
         // The coarse flag stays CLOSED until about 31 degrees on lhasa.
         // Only this device's contact and posture fields have been checked
         // against real closure, flat tilt, and folding.
-        foldPose=new FoldPose(physicalFoldSensor!=null,"lhasa".equals(Build.DEVICE),directContactSensor!=null);
-        if(physicalFoldSensor!=null&&!sensors.registerListener(this,physicalFoldSensor,20000)){
-            physicalFoldSensor=null;foldPose=new FoldPose(false,"lhasa".equals(Build.DEVICE),directContactSensor!=null);
+        boolean contactSupported="lhasa".equals(Build.DEVICE);
+        foldPose=new FoldPose(physicalFoldSensor!=null,contactSupported,directContactSensor!=null);
+        if(physicalFoldSensor!=null){
+            boolean registered=false;
+            try{registered=sensors.registerListener(this,physicalFoldSensor,20000);}
+            catch(SecurityException e){Log.w("ProjectionFold","Physical fold sensor access denied",e);}
+            if(!registered){
+                Log.w("ProjectionFold","Physical fold sensor registration failed");
+                physicalFoldSensor=null;foldPose=new FoldPose(false,contactSupported,directContactSensor!=null);
+            }
         }
-        // The controller's shell UID samples dighall. The firmware suspends
-        // continuous sensor delivery to background app UIDs, even with a11y.
+        if(contactSupported&&physicalFoldSensor==null)
+            Log.w("ProjectionFold","Physical fold sensor unavailable on "+Build.DEVICE+"; waiting for validated direct Hall samples");
+        // The controller shell UID samples dighall; app UIDs are suspended in the background.
         Sensor sensor=sensors.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE);if(sensor!=null)sensors.registerListener(this,sensor,20000);
         displays.registerDisplayListener(displayListener,main);status="已开启，等待桌面";main.post(tick);
         Log.i("ProjectionDesktop","CONNECTED homes="+homes+" physicalFold="+(physicalFoldSensor!=null)+" directContact="+(directContactSensor!=null));

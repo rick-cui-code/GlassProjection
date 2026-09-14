@@ -16,6 +16,8 @@ final class FoldPose {
     // 0 contact, 1 separated. Unlike fold_status, this is refreshed at 50 Hz.
     final int directContactStatus;
     private final long directContactAt;
+    // Validated devices must not fall back to hinge-only input if both physical sources fail.
+    private final boolean physicalRequired;
     private final boolean flatLatched;
     // Sensor timestamps share Android's elapsed-realtime nanosecond clock.
     // Zero means no observation/latch. Keep stream ordering separate: a queued
@@ -23,9 +25,10 @@ final class FoldPose {
     private final long angleAt,foldAt,closedAt;
     FoldPose(boolean physicalSensor){this(physicalSensor,false);}
     FoldPose(boolean physicalSensor,boolean contactSupported){this(physicalSensor,contactSupported,false);}
-    FoldPose(boolean physicalSensor,boolean contactSupported,boolean directContactSupported){this(Float.NaN,physicalSensor?-1:-2,physicalSensor&&contactSupported?-1:-2,physicalSensor&&contactSupported?-1:-2,false,0,0,0,contactSupported&&directContactSupported?-1:-2,0);}
-    private FoldPose(float rawAngle,int foldStatus,int contactStatus,int postureStatus,boolean wasFlat,long angleAt,long foldAt,long closedAt,int directContactStatus,long directContactAt){
+    FoldPose(boolean physicalSensor,boolean contactSupported,boolean directContactSupported){this(Float.NaN,physicalSensor?-1:-2,physicalSensor&&contactSupported?-1:-2,physicalSensor&&contactSupported?-1:-2,false,0,0,0,contactSupported&&directContactSupported?-1:-2,0,contactSupported);}
+    private FoldPose(float rawAngle,int foldStatus,int contactStatus,int postureStatus,boolean wasFlat,long angleAt,long foldAt,long closedAt,int directContactStatus,long directContactAt,boolean physicalRequired){
         this.rawAngle=rawAngle;this.foldStatus=foldStatus;this.contactStatus=contactStatus;this.postureStatus=postureStatus;
+        this.physicalRequired=physicalRequired;
         this.angleAt=angleAt;this.foldAt=foldAt;this.closedAt=closedAt;
         this.directContactStatus=directContactStatus;this.directContactAt=directContactAt;
         // OPENED can arrive before the hinge has reached the clear endpoint.
@@ -41,7 +44,7 @@ final class FoldPose {
         // closure. Reaching the clear endpoint in the folded posture closes
         // that gap, without treating the entire coarse CLOSED range as shut.
         if(directContactStatus==-2&&contactStatus>=0&&foldStatus==1&&postureStatus==0&&angle<=1&&at>=foldAt)closure=at;
-        return new FoldPose(angle,foldStatus,contactStatus,postureStatus,flatLatched,at,foldAt,closure,directContactStatus,directContactAt);
+        return new FoldPose(angle,foldStatus,contactStatus,postureStatus,flatLatched,at,foldAt,closure,directContactStatus,directContactAt,physicalRequired);
     }
     FoldPose withFoldStatus(float status){
         return withFoldEvent(new float[]{status});
@@ -71,7 +74,7 @@ final class FoldPose {
                     &&rawAngle<=1&&angleAt>=at)closure=Math.max(closure,angleAt);
             }
         }
-        return new FoldPose(rawAngle,fold,contact,state,flatLatched,angleAt,at,closure,directContactStatus,directContactAt);
+        return new FoldPose(rawAngle,fold,contact,state,flatLatched,angleAt,at,closure,directContactStatus,directContactAt,physicalRequired);
     }
     FoldPose withDirectContactEvent(float[] values,long at){
         if(directContactStatus==-2||values==null||values.length<9||at<=directContactAt)return this;
@@ -87,12 +90,12 @@ final class FoldPose {
         if(field>=contactThreshold)contact=0;
         else if(field<=contactThreshold*.9f)contact=1;
         return new FoldPose(rawAngle,foldStatus,contactStatus,postureStatus,flatLatched,
-            angleAt,foldAt,0,contact,at);
+            angleAt,foldAt,0,contact,at,physicalRequired);
     }
     FoldPose withDirectContactAvailable(boolean available){
         if(available==(directContactStatus!=-2))return this;
         return new FoldPose(rawAngle,foldStatus,contactStatus,postureStatus,flatLatched,
-            angleAt,foldAt,directContactStatus==0?directContactAt:closedAt,available?-1:-2,0);
+            angleAt,foldAt,directContactStatus==0?directContactAt:closedAt,available?-1:-2,0,physicalRequired);
     }
     long directContactAgeMs(long now){return directContactAt==0?Long.MAX_VALUE:Math.max(0,(now-directContactAt)/1000000);}
     FoldPose expireDirectContact(long now){
@@ -100,12 +103,12 @@ final class FoldPose {
         // Never keep rendering from a stale separated sample if the host dies.
         // A fresh shell sample restores the measured state automatically.
         return new FoldPose(rawAngle,foldStatus,contactStatus,postureStatus,flatLatched,
-            angleAt,foldAt,0,-1,directContactAt);
+            angleAt,foldAt,0,-1,directContactAt,physicalRequired);
     }
     boolean closedLatched(){return directContactStatus==-2?closedAt>0:directContactStatus==0;}
     private boolean closed(){
         if(directContactStatus!=-2)return directContactStatus!=1;
-        return closedLatched()||(contactStatus>=0?contactStatus==0:foldStatus==-1||foldStatus==1);
+        return physicalRequired&&foldStatus==-2||closedLatched()||(contactStatus>=0?contactStatus==0:foldStatus==-1||foldStatus==1);
     }
     // Confirmed flat protection, not merely the raw vendor OPENED report.
     boolean fullyOpened(){return flatLatched;}

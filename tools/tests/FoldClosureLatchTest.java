@@ -78,7 +78,7 @@ public final class FoldClosureLatchTest {
         check(!pose.closedLatched()&&pose.blocksProjection(),"legacy coarse fallback");
         pose=pose.withFoldStatus(0).withAngle(2);
         check(!pose.blocksProjection(),"legacy reopening unaffected");
-        pose=new FoldPose(false,true).withAngle(1).withAngle(5);
+        pose=new FoldPose(false).withAngle(1).withAngle(5);
         check(!pose.closedLatched()&&pose.angle()==5,"unsupported sensor unchanged");
         // A stale coarse CLOSED is not enough on its own at 2+ degrees.
         pose=new FoldPose(true,true).withAngle(2,100).withFoldEvent(event(11,1),90);

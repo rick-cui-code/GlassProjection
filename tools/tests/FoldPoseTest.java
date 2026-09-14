@@ -4,7 +4,41 @@ import io.github.sixzleo.tabfold.probe.EarlyDisplayModel;
 
 public final class FoldPoseTest {
     private static void check(boolean value,String message){if(!value)throw new AssertionError(message);}
+    private static void requiredSensorFailure(){
+        FoldPose pose=new FoldPose(false,true);
+        ProjectionAngleMotion motion=new ProjectionAngleMotion();
+        ProjectionEntrance entry=new ProjectionEntrance();
+        FoldHoldGate hold=new FoldHoldGate();
+        EarlyDisplayModel display=new EarlyDisplayModel();
+        motion.update(0,30,false,false,false,false);
+        entry.update(0,true,false);entry.update(200,true,false);
+        check(hold.restore(200,30,true),"test starts with a held animation");
+        display.update(0,true,false);display.update(4,true,false);
+        check(display.update(60,true,false)==2,"test starts with an active display override");
+        int now=200;
+        for(int repeat=0;repeat<40;repeat++)for(float raw:new float[]{0,2,7,12,30,36,10,0}){
+            now+=20;pose=pose.withAngle(raw);
+            check(pose.foldStatus==-2&&pose.rawAngle==raw,"unavailable sensor remains visible in telemetry");
+            check(pose.blocksProjection()&&pose.angle()==0,"known contact profile must block angle-only fallback when its sensor is unavailable");
+            float angle=motion.update(now,pose.angle(),false,pose.blocksProjection(),pose.fullyOpened(),false);
+            check(angle==0,"sensor failure clears old angle smoothing immediately");
+            check(ProjectionMath.endpointOpacity(angle,false,1,pose.blocksProjection())==0,"sensor failure suppresses the outer overlay");
+            check(ProjectionMath.effectTilt(angle,false,1,pose.blocksProjection())==0,"sensor failure removes tilt and blur");
+            check(ProjectionMath.cropFraction(angle,false)==0,"sensor failure clears crop");
+            check(entry.update(now,false,false)==0,"sensor failure clears entrance state");
+            check(!hold.update(now,pose.angle(),true),"sensor failure clears hold state");
+            check(display.update(pose.angle(),true,false)==-1,"sensor failure releases the display override");
+        }
+        pose=pose.withFoldEvent(new float[]{0,4,1,2,0,3,0,0,0,681,1630});
+        check(pose.blocksProjection(),"an unavailable source cannot accept fold events");
+        pose=new FoldPose(true,true).withAngle(4);
+        check(pose.blocksProjection(),"reconnection waits for fresh physical state");
+        pose=pose.withFoldEvent(new float[]{1,4,1,2,0,3,0,0,0,681,1630});
+        check(!pose.blocksProjection()&&pose.angle()==4,"fresh contact separation restores small-angle opening");
+        System.out.println("PASS: required sensor failure suppresses closed tilt, clears motion/hold/display state, and reconnects at small angles");
+    }
     public static void main(String[] args){
+        requiredSensorFailure();
         FoldPose pose=new FoldPose(true).withAngle(30);
         check(pose.blocksProjection()&&pose.angle()==0,"wait for initial physical state before showing effects");
         pose=pose.withFoldStatus(1);
@@ -121,7 +155,7 @@ public final class FoldPoseTest {
         check(!pose.blocksProjection()&&pose.angle()==7,"outer small opening still works after an inner flat cycle");
         legacy=new FoldPose(true).withAngle(170).withFoldEvent(flat);
         check(legacy.postureStatus==-2&&!legacy.blocksProjection()&&legacy.angle()==170,"unvalidated devices must not decode the posture field");
-        check(new FoldPose(false,true).withAngle(170).withFoldEvent(flat).angle()==170,"no vendor sensor preserves angle fallback");
+        check(new FoldPose(false).withAngle(170).withFoldEvent(flat).angle()==170,"unvalidated device preserves angle fallback");
         System.out.println("PASS: captured flat tilt blocked, true folding resumes, no false screen fade/hold/switch, stale/invalid events, closure precedence and device fallback");
         System.out.println("PASS: captured small-opening/contact-closure replay, low-angle fade, invalid contact and device fallback");
         System.out.println("PASS: closed tilt replay, startup, immediate opening, handoff, delayed hinge, invalid events and fallback");

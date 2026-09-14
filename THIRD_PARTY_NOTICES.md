@@ -52,3 +52,7 @@ Optional regeneration uses NumPy and Pillow from the developer's environment.
 Apache License 2.0, copyright 2021-2025 LSPosed.
 Used for compatibility with our own accessibility connection and callback state.
 See [licenses/HiddenApiBypass-LICENSE](licenses/HiddenApiBypass-LICENSE).
+
+## Android apksig
+
+`com.android.tools.build:apksig:8.6.1`: [Android source](https://android.googlesource.com/platform/tools/apksig/), Apache-2.0. Used to verify downloaded APK signatures. The dependency license is bundled in [apksig-LICENSE.txt](projection-lab/src/main/assets/notices/apksig-LICENSE.txt).
