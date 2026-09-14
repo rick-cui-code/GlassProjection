@@ -12,22 +12,25 @@ final class FoldPose {
     // and folding on this device; never decode this field on other devices.
     final int postureStatus;
     final float rawAngle;
+    private final boolean physicalRequired;
     private final boolean flatLatched;
     FoldPose(boolean physicalSensor){this(physicalSensor,false);}
-    FoldPose(boolean physicalSensor,boolean contactSupported){this(Float.NaN,physicalSensor?-1:-2,physicalSensor&&contactSupported?-1:-2,physicalSensor&&contactSupported?-1:-2,false);}
-    private FoldPose(float rawAngle,int foldStatus,int contactStatus,int postureStatus,boolean wasFlat){
+    // A validated contact profile requires its physical source even when registration fails.
+    FoldPose(boolean physicalSensor,boolean contactSupported){this(Float.NaN,physicalSensor?-1:-2,physicalSensor&&contactSupported?-1:-2,physicalSensor&&contactSupported?-1:-2,contactSupported,false);}
+    private FoldPose(float rawAngle,int foldStatus,int contactStatus,int postureStatus,boolean physicalRequired,boolean wasFlat){
         this.rawAngle=rawAngle;this.foldStatus=foldStatus;this.contactStatus=contactStatus;this.postureStatus=postureStatus;
+        this.physicalRequired=physicalRequired;
         // OPENED can arrive before the hinge has reached the clear endpoint.
         // Follow the hinge until BOTH signals agree, then ignore angle-only tilt.
         flatLatched=!closed()&&postureStatus==3&&(wasFlat||Float.isFinite(rawAngle)&&rawAngle>=175);
     }
     FoldPose withAngle(float angle){
-        return Float.isFinite(angle)?new FoldPose(angle,foldStatus,contactStatus,postureStatus,flatLatched):this;
+        return Float.isFinite(angle)?new FoldPose(angle,foldStatus,contactStatus,postureStatus,physicalRequired,flatLatched):this;
     }
     FoldPose withFoldStatus(float status){
         // This vendor flag is binary. Never interpret an unknown/invalid value as open.
         if(foldStatus==-2||(status!=0&&status!=1))return this;
-        return new FoldPose(rawAngle,(int)status,contactStatus,postureStatus,flatLatched);
+        return new FoldPose(rawAngle,(int)status,contactStatus,postureStatus,physicalRequired,flatLatched);
     }
     FoldPose withFoldEvent(float[] values){
         if(values==null||values.length==0)return this;
@@ -36,9 +39,9 @@ final class FoldPose {
         int contact=values[2]==0||values[2]==1?(int)values[2]:contactStatus;
         float posture=values[4];
         int state=posture==0||posture==1||posture==2||posture==3?(int)posture:postureStatus;
-        return new FoldPose(rawAngle,next.foldStatus,contact,state,flatLatched);
+        return new FoldPose(rawAngle,next.foldStatus,contact,state,physicalRequired,flatLatched);
     }
-    private boolean closed(){return contactStatus>=0?contactStatus==0:foldStatus==-1||foldStatus==1;}
+    private boolean closed(){return physicalRequired&&foldStatus==-2||(contactStatus>=0?contactStatus==0:foldStatus==-1||foldStatus==1);}
     // Confirmed flat protection, not merely the raw vendor OPENED report.
     boolean fullyOpened(){return flatLatched;}
     boolean blocksProjection(){return closed()||fullyOpened();}
