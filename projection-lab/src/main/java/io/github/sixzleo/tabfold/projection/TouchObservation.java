@@ -44,5 +44,6 @@ final class TouchObservation {
     private void clear(){
         if(Build.VERSION.SDK_INT>=34)try{AccessibilityServiceInfo info=service.getServiceInfo();if(info!=null){info.setMotionEventSources(0);service.setServiceInfo(info);}}catch(RuntimeException e){Log.w("ProjectionTouch","Observer cleanup",e);}
     }
+    void resume(){closed=false;retryAt=0;}
     void close(){closed=true;clear();enabled=false;}
 }

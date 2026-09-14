@@ -18,7 +18,7 @@ def main():
     source = ROOT / "projection-lab/src/main/java" / package.replace(".", "/")
     files = [source / f"{name}.java" for name in ("ProjectionMath", "ProjectionEntrance", "ProjectionAngleMotion", "ProjectionSceneTiming", "AdaptiveAngleFollow", "FrameUpdateOrder", "ProjectionCadence", "CoverBlackout", "ScreenFade", "CoverLayoutReady", "FrameGate", "LockScreenGate", "FoldHoldGate", "FingerSwipeGate", "FoldPose")]
     files += [ROOT / "tools/helpers/EarlyDisplayModel.java", ROOT / "tools/helpers/FoldReturnMotion.java", ROOT / "tools/helpers/RenderIdleGate.java", ROOT / "tools/helpers/RenderWakeSignal.java", ROOT / "tools/helpers/RenderDrawGate.java"]
-    files += [source / name for name in ("AppBlacklist.java", "UpdateTrust.java", "UpdateTransport.java")]
+    files += [source / name for name in ("AppBlacklist.java", "UpdateTrust.java", "UpdateTransport.java", "ResumableUpdate.java")]
     files += sorted((ROOT / "tools/tests").glob("*.java"))
     build = ROOT / "build"
     build.mkdir(exist_ok=True)
@@ -29,6 +29,7 @@ def main():
         for test in tests:
             subprocess.run([str(java), "-cp", output, test], check=True)
         subprocess.run([str(java), "-cp", output, package + ".UpdateSecurityTest"], check=True)
+        subprocess.run([str(java), "-cp", output, package + ".ResumeDownloadTest"], check=True)
 
 
 if __name__ == "__main__":

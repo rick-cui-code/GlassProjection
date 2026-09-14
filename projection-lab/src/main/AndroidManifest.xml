@@ -4,10 +4,12 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23"/>
     <queries><package android:name="moe.shizuku.privileged.api"/><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.HOME"/></intent><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent></queries>
-    <application android:label="@string/app_name" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:icon="@drawable/ic_projection">
+    <application android:name=".ProjectionApp" android:label="@string/app_name" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:icon="@drawable/ic_projection">
         <meta-data android:name="moe.shizuku.client.V3_SUPPORT" android:value="true"/>
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL"/>
         <activity android:name=".DesktopActivity" android:exported="true" android:excludeFromRecents="true">
@@ -16,6 +18,8 @@
         <activity android:name=".ProjectionActivity" android:exported="true" android:configChanges="screenSize|smallestScreenSize|orientation|screenLayout|density"/>
         <activity android:name=".AppBlacklistActivity" android:exported="false" android:label="应用黑名单"/>
         <activity android:name=".UpdateActivity" android:exported="false" android:label="检查更新"/>
+        <activity android:name=".UpdateInstallActivity" android:exported="false" android:excludeFromRecents="true" android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density"/>
+        <service android:name=".UpdateDownloadService" android:exported="false" android:foregroundServiceType="dataSync"/>
         <provider android:name=".UpdateApkProvider" android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true"/>
         <activity android:name=".CacheProbeActivity" android:exported="true"/>
         <activity android:name=".WirelessPairingActivity" android:exported="false" android:label="玻璃投影配对"

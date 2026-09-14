@@ -29,4 +29,12 @@ final class ApkRelease {
         else if(digest.matches("sha256:[0-9a-f]{64}"))hash=digest.substring(7);
         else throw new IOException("无法识别 APK 校验值");
     }
+    String json(){
+        try{
+            JSONObject asset=new JSONObject().put("name",name).put("browser_download_url",url).put("size",size);
+            if(!hash.isEmpty())asset.put("digest","sha256:"+hash);
+            return new JSONObject().put("tag_name",tag).put("html_url",page).put("body",notes)
+                .put("assets",new JSONArray().put(asset)).toString();
+        }catch(JSONException impossible){throw new IllegalStateException(impossible);}
+    }
 }

@@ -302,7 +302,9 @@ public final class ProjectionService extends AccessibilityService implements Sen
         value[0]=31*(31*(31*(31*value[0]+b.left)+b.top)+b.right)+b.bottom;value[1]++;
         for(int i=0;i<node.getChildCount();i++){AccessibilityNodeInfo c=node.getChild(i);if(c!=null)try{collect(c,value,depth+1);}finally{c.recycle();}}
     }
+    private boolean updateSuspended;
     private void update() {
+        if(updateSuspended)return;
         try{updateState();}finally{
             signalRenderer();main.removeCallbacks(tick);
             if(connected)main.postDelayed(tick,ProjectionCadence.delay(standby,foldPose.blocksProjection(),screenFadeActive,coverToken,pending,homeUncertain));
@@ -433,6 +435,18 @@ public final class ProjectionService extends AccessibilityService implements Sen
     private void closeWindow() {
         if(window==null)return;FrameLayout old=window;window=null;
         try{manager.removeViewImmediate(old);}catch(RuntimeException e){Log.w("ProjectionDesktop","window remove",e);}
+    }
+    static void pauseForUpdate(){
+        ProjectionService s=instance;
+        if(s==null){MobileHelper.stop();return;}
+        s.updateSuspended=true;allowed=false;s.main.removeCallbacks(s.tick);
+        s.touchObservation.close();
+        if(s.mirrorPreview!=null){s.mirrorPreview.close();s.mirrorPreview=null;}
+        s.reset();s.closeWindow();MobileHelper.stop();status="更新安装中";
+    }
+    static void resumeAfterUpdate(){
+        ProjectionService s=instance;if(s==null||!s.updateSuspended)return;
+        s.updateSuspended=false;s.touchObservation.resume();MobileHelper.start(s);s.update();
     }
     static void stop() {ProjectionService service=instance;if(service!=null)service.main.post(service::disableSelf);}
     @Override public void onAccessibilityEvent(AccessibilityEvent e){appScopeDirty=true;update();}

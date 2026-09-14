@@ -20,6 +20,13 @@ public final class DesktopActivity extends Activity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private TextView state,hint;
     private TextView mobileStatus;
+    private View updateDot;
+    private Button updateButton;
+    private UpdateCoordinator updates;
+    private final Runnable updateBadge=()->{
+        if(updateDot!=null){boolean available=updates.hasUpdate();updateDot.setVisibility(available?View.VISIBLE:View.GONE);
+            updateButton.setContentDescription(available?"检查更新，有新版本":"检查更新");}
+    };
     private Button service;
     private Button blacklist;
     private SeekBar blur,stretch,open,close,holdTime,startAngle;
@@ -40,7 +47,15 @@ public final class DesktopActivity extends Activity {
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setPadding(dp(24),dp(22),dp(24),dp(24));
         int width=Math.min(getResources().getDisplayMetrics().widthPixels,dp(680));
         frame.addView(page,new FrameLayout.LayoutParams(width,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL));
-        TextView mark=text("GLASS / FOLD",11,ACCENT);mark.setLetterSpacing(.18f);page.addView(mark);
+        updates=UpdateCoordinator.get(this);
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);page.addView(top);
+        TextView mark=text("GLASS / FOLD",11,ACCENT);mark.setLetterSpacing(.18f);top.addView(mark,new LinearLayout.LayoutParams(0,-2,1));
+        FrameLayout updateEntry=new FrameLayout(this);top.addView(updateEntry,new LinearLayout.LayoutParams(dp(112),dp(48)));
+        LinearLayout buttonHolder=new LinearLayout(this);updateEntry.addView(buttonHolder,new FrameLayout.LayoutParams(-1,-1));
+        updateButton=button(buttonHolder,"检查更新",()->startActivity(new Intent(this,UpdateActivity.class)),false);
+        updateButton.setLayoutParams(new LinearLayout.LayoutParams(-1,-1));
+        updateDot=new View(this);updateDot.setBackground(background(0xffff5b61,4));updateDot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        FrameLayout.LayoutParams dotLayout=new FrameLayout.LayoutParams(dp(8),dp(8),Gravity.TOP|Gravity.RIGHT);dotLayout.topMargin=dp(7);dotLayout.rightMargin=dp(5);updateEntry.addView(updateDot,dotLayout);updateDot.setVisibility(View.GONE);
         TextView title=text("玻璃投影",32,TEXT);title.setTypeface(null,Typeface.BOLD);title.setPadding(0,dp(9),0,dp(6));page.addView(title);
         page.addView(text("让每一次开合，柔和衔接。",14,MUTED));space(page,24);
         LinearLayout status=card(page);state=text("动画已就绪",17,ACCENT);state.setTypeface(null,Typeface.BOLD);status.addView(state);
@@ -97,7 +112,6 @@ public final class DesktopActivity extends Activity {
         TextView foot=text("设置自动保存，下次开合生效。",12,MUTED);foot.setGravity(Gravity.CENTER);foot.setPadding(0,dp(15),0,0);page.addView(foot);
         button(page,"无线连接开源许可",this::showNotices,false);
         button(page,"更多配对方式",this::alternativePairing,false);
-        button(page,"检查更新",()->startActivity(new Intent(this,UpdateActivity.class)),false);
         scroll.requestApplyInsets();refreshStatus();
     }
     private void refreshStatus(){
@@ -207,6 +221,8 @@ public final class DesktopActivity extends Activity {
             public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });bar.setStateDescription(initial+unit);return bar;
     }
+    @Override public void onStart(){super.onStart();updates.observe(updateBadge);updates.check(false);}
+    @Override public void onStop(){updates.unobserve(updateBadge);super.onStop();}
     @Override public void onResume(){super.onResume();if(waitingNotifications){waitingNotifications=false;if(getSystemService(android.app.NotificationManager.class).areNotificationsEnabled())startNotificationPairing();}if(MobileHelper.prefersWireless())MobileHelper.prepare(this);handler.removeCallbacks(tick);handler.post(tick);}
     @Override public void onSaveInstanceState(Bundle out){out.putBoolean("waitingNotifications",waitingNotifications);super.onSaveInstanceState(out);}
     @Override public void onPause(){handler.removeCallbacks(tick);super.onPause();}

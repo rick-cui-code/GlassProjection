@@ -12,7 +12,7 @@ public final class UpdateApkProvider extends ContentProvider {
     public boolean onCreate(){return true;}
     private File file(Uri uri)throws FileNotFoundException {
         if(!"/verified.apk".equals(uri.getPath()))throw new FileNotFoundException();
-        return new File(getContext().getCacheDir(),"updates/verified.apk");
+        return new File(getContext().getFilesDir(),"updates/verified.apk");
     }
     public ParcelFileDescriptor openFile(Uri uri,String mode)throws FileNotFoundException {
         if(!"r".equals(mode))throw new FileNotFoundException("Read only");return ParcelFileDescriptor.open(file(uri),ParcelFileDescriptor.MODE_READ_ONLY);
