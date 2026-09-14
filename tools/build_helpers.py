@@ -43,8 +43,8 @@ def main():
     assets = ROOT / "projection-lab/src/main/assets/helpers"
     assets.mkdir(parents=True, exist_ok=True)
     groups = {
-        "live": ["LiveMirrorWindowProbe", "LiveBlurPyramid", "FoldReturnMotion", "OutputOwnerGuard"],
-        "controller": ["EarlyDisplayHelper", "EarlyDisplayModel"],
+        "live": ["LiveMirrorWindowProbe", "LiveBlurPyramid", "FoldReturnMotion", "OutputOwnerGuard", "RenderIdleGate", "RenderWakeSignal", "RenderFrameCache", "RenderDrawGate"],
+        "controller": ["EarlyDisplayHelper", "EarlyDisplayModel", "DirectHallReader"],
     }
     with tempfile.TemporaryDirectory(prefix="helpers-", dir=build) as temp:
         for name, classes in groups.items():
@@ -54,7 +54,7 @@ def main():
             dex.mkdir()
             sources = [ROOT / "tools/helpers" / (c + ".java") for c in classes]
             if name == "live":
-                for model in ("ProjectionMath", "ProjectionEntrance", "ProjectionAngleMotion", "CoverLayoutReady", "ScreenFade"):
+                for model in ("ProjectionMath", "ProjectionEntrance", "ProjectionAngleMotion", "AdaptiveAngleFollow", "FrameUpdateOrder", "CoverLayoutReady", "ScreenFade"):
                     sources.append(ROOT / "projection-lab/src/main/java/io/github/sixzleo/tabfold/projection" / (model + ".java"))
             run(javac, "-encoding", "UTF-8", "-cp", android, "-d", compiled, *sources)
             run(java, "-cp", d8, "com.android.tools.r8.D8", "--min-api", "33",

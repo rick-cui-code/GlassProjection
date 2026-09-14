@@ -24,10 +24,17 @@ public final class ProjectionProvider extends ContentProvider {
         if("mirror-observe".equals(method)){ProjectionService.mirrorObserve(arg==null?30:Integer.parseInt(arg));return b;}
         if("mirror-fold".equals(method)){ProjectionService.mirrorFoldTest(arg==null?55:Integer.parseInt(arg));return b;}
         if("mirror-frame".equals(method)){return ProjectionService.mirrorFrame();}
+        if("mirror-listen".equals(method)){
+            if(Binder.getCallingUid()!=2000)throw new SecurityException("Shell renderer only");
+            ProjectionService.listenRenderer(extras==null?null:extras.getBinder("listener"));
+            b.putBoolean("supported",true);b.putBoolean("pushFrames",true);return b;
+        }
         if("mirror-blackout-prepared".equals(method)){ProjectionService.prepareBlackout(Long.parseLong(arg));return b;}
         if("mirror-cover-content-ready".equals(method)){ProjectionService.markCoverReady(arg);return b;}
         if("desktop-disable".equals(method)){ProjectionService.stop();return b;}
         if("desktop-telemetry".equals(method)) {
+            if(Binder.getCallingUid()==2000&&extras!=null&&extras.containsKey("directContactAvailable"))
+                ProjectionService.deliverDirectContact(extras);
             ProjectionService.helperAt=SystemClock.uptimeMillis();
             b.putLong("updatedAt",ProjectionService.updatedAt);b.putBoolean("allowed",ProjectionService.allowed);
             b.putBoolean("primaryInner",ProjectionService.primaryInner);ProjectionService.putFoldPose(b);

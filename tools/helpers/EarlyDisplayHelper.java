@@ -51,10 +51,10 @@ public final class EarlyDisplayHelper {
         EarlyDisplayModel model=new EarlyDisplayModel();int active=-1;
         int configuredOpen=-1,configuredClose=-1;
         long expires=args.length==0 || "0".equals(args[0])?Long.MAX_VALUE:SystemClock.uptimeMillis()+Integer.parseInt(args[0])*1000L;
-        try {
+        try (DirectHallReader contact=new DirectHallReader()) {
             System.out.println("READY single-panel: opening >=60 inner, closing <=120 cover; reversal 3 degrees; <=3/>=175 release");
             while(SystemClock.uptimeMillis()<expires && !stop.exists()) {
-                Bundle data=(Bundle)call.invoke(provider,source,authority,"desktop-telemetry",null,null);
+                Bundle data=(Bundle)call.invoke(provider,source,authority,"desktop-telemetry",null,contact.sample());
                 lastPoll=SystemClock.uptimeMillis();
                 int open=data.getInt("openAngle",60),close=data.getInt("closeAngle",120);
                 if(open!=configuredOpen||close!=configuredClose){model.configure(open,close);configuredOpen=open;configuredClose=close;System.out.println("SETTINGS opening="+open+" closing="+close);}

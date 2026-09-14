@@ -23,6 +23,47 @@ public final class ProjectionService extends AccessibilityService implements Sen
     private float hinge=Float.NaN;
     static volatile String status="未开启";
     private final Handler main=new Handler(Looper.getMainLooper());
+    private static volatile Messenger rendererListener;
+    private long rendererSignature=Long.MIN_VALUE;
+    private long rendererRevision,displayRevision,displaySignature=Long.MIN_VALUE;
+    private volatile Bundle cachedRenderFrame=new Bundle();
+    private Bundle displayFrame=new Bundle();
+    private boolean rendererFull;
+    private long stateUpdates;
+    static void listenRenderer(IBinder binder){
+        rendererListener=binder==null?null:new Messenger(binder);
+        ProjectionService s=instance;if(s!=null)s.main.post(()->{s.rendererFull=true;s.rendererSignature=Long.MIN_VALUE;s.signalRenderer();});
+    }
+    private void signalRenderer(){
+        FoldPose pose=foldPose;
+        long signature=Float.floatToIntBits(pose.angle());
+        int flags=(allowed?1:0)|(primaryInner?2:0)|(pose.blocksProjection()?4:0)|(pose.fullyOpened()?8:0)
+                |(foldHeld?16:0)|(screenFadeActive?32:0)|(standby?64:0);
+        signature=31*signature+flags;signature=31*signature+coverToken;
+        signature=31*signature+screenFadeMode;signature=31*signature+mirrorScene.hashCode();
+        signature=31*signature+AnimationSettings.startAngle;
+        signature=31*signature+AnimationSettings.blurPercent;signature=31*signature+AnimationSettings.stretchPercent;
+        signature=31*signature+displayRevision;signature=31*signature+(mirrorPreview!=null?1:0);
+        signature=31*signature+Float.floatToIntBits(screenDarkness);
+        signature=31*signature+Float.floatToIntBits(screenFadeFrom);signature=31*signature+screenFadeAt;
+        signature=31*signature+coverStarted;signature=31*signature+(coverBacking?1:0);
+        if(signature==rendererSignature)return;rendererSignature=signature;
+        Bundle previous=cachedRenderFrame,next=buildRenderFrame();
+        long base=rendererRevision;next.putLong("_revision",++rendererRevision);next.putBoolean("_full",true);
+        cachedRenderFrame=next;
+        Messenger listener=rendererListener;if(listener==null)return;
+        Bundle delta;
+        if(rendererFull||base==0)delta=new Bundle(next);
+        else{
+            delta=new Bundle(next);
+            for(String key:next.keySet())if(!key.startsWith("_")&&java.util.Objects.equals(next.get(key),previous.get(key)))delta.remove(key);
+            delta.putBoolean("_full",false);delta.putLong("_base",base);
+        }
+        rendererFull=false;
+        Message message=Message.obtain(null,1);message.setData(delta);
+        try{listener.send(message);}
+        catch(RemoteException e){if(rendererListener==listener)rendererListener=null;}
+    }
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private final HashSet<String> homes=new HashSet<>();
     private final FrameGate gate=new FrameGate();
@@ -32,11 +73,17 @@ public final class ProjectionService extends AccessibilityService implements Sen
     private final TouchObservation touchObservation=new TouchObservation(this);
     private final FingerSwipeGate fingerSwipe=new FingerSwipeGate();
     private SensorManager sensors;
-    private Sensor physicalFoldSensor;
+    private Sensor physicalFoldSensor,directContactSensor;
+    private float directContactField=Float.NaN;
+    private int directContactBit=-1;
     private DisplayManager displays;
     private WindowManager manager;
     private FrameLayout window;
     private boolean connected,pending,homeUncertain;
+    private final AppBlacklist appBlacklist=new AppBlacklist();
+    private boolean appScopeDirty=true;
+    private long appScopeAt;
+    private volatile boolean appBlocked;
     private String scene="";
     private long retryAt,lastHomeAt,shownSignature;
     private int generation,attempts;
@@ -79,8 +126,10 @@ public final class ProjectionService extends AccessibilityService implements Sen
         Bundle result=new Bundle();ProjectionService s=instance;result.putBoolean("service",s!=null);
         if(s!=null)s.main.post(()->{
             if(!s.livePreferred){s.livePreferred=true;s.getSharedPreferences("projection",0).edit().putBoolean("live",true).apply();}
+            boolean changed=s.mirrorFold!=renew||renew&&SystemClock.uptimeMillis()>=s.mirrorUntil;
             s.liveUntil=renew?SystemClock.uptimeMillis()+3000:0;
-            s.mirrorFold=renew;s.mirrorUntil=s.liveUntil;s.update();
+            s.mirrorFold=renew;s.mirrorUntil=s.liveUntil;
+            if(changed)s.update();
         });
         return result;
     }
@@ -89,26 +138,40 @@ public final class ProjectionService extends AccessibilityService implements Sen
         s.mirrorFold=seconds>0;s.mirrorUntil=seconds<=0?0:SystemClock.uptimeMillis()+Math.min(60,seconds)*1000L;s.update();
     });}
     static Bundle mirrorFrame(){
-        Bundle b=new Bundle();ProjectionService s=instance;
-        if(s==null)return b;
-        Display d=s.displays.getDisplay(0);if(d==null)return b;Point p=new Point();d.getRealSize(p);
+        ProjectionService s=instance;if(s==null)return new Bundle();
+        Bundle b=new Bundle(s.cachedRenderFrame);
         b.putBoolean("alive",s.mirrorPreview!=null&&SystemClock.uptimeMillis()<s.mirrorUntil);
-        boolean inner=inner(d);int rotation=d.getRotation();
-        b.putBoolean("allowed",allowed);b.putBoolean("inner",inner);b.putInt("rotation",rotation);
-        b.putLong("sceneStartedAt",s.entrySceneStarted(p.x,p.y,rotation,inner));
-        b.putBoolean("standby",standby);
-        b.putLong("coverToken",s.coverToken);b.putLong("coverStartedAt",s.coverStarted);b.putBoolean("coverBacking",s.coverBacking);
-        b.putBoolean("screenFadeActive",s.screenFadeActive);b.putFloat("screenDarkness",s.screenDarkness);
-        b.putInt("screenFadeMode",s.screenFadeMode);b.putLong("screenFadeAt",s.screenFadeAt);b.putFloat("screenFadeFrom",s.screenFadeFrom);
-        Display.Mode mode=d.getMode();
-        int expectedWidth=rotation%2==0?mode.getPhysicalWidth():mode.getPhysicalHeight();
+        b.putBoolean("allowed",allowed);b.putBoolean("_full",true);putFoldPose(b);
+        b.putLong("stateUpdates",s.stateUpdates);
+        b.putString("foregroundPackage",s.appBlacklist.foreground());b.putBoolean("appBlacklisted",s.appBlocked);
+        return b;
+    }
+    private void cacheDisplay(Display d){
+        if(d==null){if(!displayFrame.isEmpty()){displayFrame=new Bundle();displayRevision++;displaySignature=Long.MIN_VALUE;}return;}
+        Point p=new Point();d.getRealSize(p);int rotation=d.getRotation();boolean inner=inner(d);
+        Display.Mode mode=d.getMode();int expectedWidth=rotation%2==0?mode.getPhysicalWidth():mode.getPhysicalHeight();
         int expectedHeight=rotation%2==0?mode.getPhysicalHeight():mode.getPhysicalWidth();
+        long signature=p.x;signature=31*signature+p.y;signature=31*signature+rotation;signature=31*signature+(inner?1:0);
+        signature=31*signature+d.getState();signature=31*signature+expectedWidth;signature=31*signature+expectedHeight;
+        if(signature==displaySignature)return;displaySignature=signature;displayRevision++;
+        Bundle b=new Bundle();b.putBoolean("inner",inner);b.putInt("rotation",rotation);
+        b.putLong("sceneStartedAt",entrySceneStarted(p.x,p.y,rotation,inner));
         b.putBoolean("geometryValid",p.x==expectedWidth&&p.y==expectedHeight);
-        b.putBoolean("foldHeld",s.foldHeld);
+        b.putInt("screenWidth",p.x);b.putInt("screenHeight",p.y);b.putInt("state",d.getState());displayFrame=b;
+    }
+    private Bundle buildRenderFrame(){
+        Bundle b=new Bundle(displayFrame);
+        b.putBoolean("alive",mirrorPreview!=null&&SystemClock.uptimeMillis()<mirrorUntil);b.putBoolean("allowed",allowed);
+        b.putBoolean("standby",standby);
+        b.putLong("coverToken",coverToken);b.putLong("coverStartedAt",coverStarted);b.putBoolean("coverBacking",coverBacking);
+        b.putBoolean("screenFadeActive",screenFadeActive);b.putFloat("screenDarkness",screenDarkness);
+        b.putInt("screenFadeMode",screenFadeMode);b.putLong("screenFadeAt",screenFadeAt);b.putFloat("screenFadeFrom",screenFadeFrom);
+        b.putBoolean("foldHeld",foldHeld);
         b.putFloat("blurStrength",AnimationSettings.blurPercent/100f);
         b.putInt("stretchPercent",AnimationSettings.stretchPercent);
         b.putInt("startAngle",AnimationSettings.startAngle);
-        b.putInt("screenWidth",p.x);b.putInt("screenHeight",p.y);b.putInt("state",d.getState());putFoldPose(b);
+        FoldPose pose=foldPose;b.putFloat("angle",pose.angle());b.putFloat("rawAngle",pose.rawAngle);
+        b.putBoolean("projectionBlocked",pose.blocksProjection());b.putBoolean("fullyOpened",pose.fullyOpened());
         return b;
     }
     static void putFoldPose(Bundle b){
@@ -116,6 +179,11 @@ public final class ProjectionService extends AccessibilityService implements Sen
         b.putFloat("angle",pose.angle());b.putFloat("rawAngle",pose.rawAngle);
         b.putInt("foldStatus",pose.foldStatus);b.putBoolean("projectionBlocked",pose.blocksProjection());
         b.putInt("contactStatus",pose.contactStatus);
+        b.putBoolean("closedLatched",pose.closedLatched());
+        b.putInt("directContactStatus",pose.directContactStatus);
+        b.putLong("directContactAgeMs",pose.directContactAgeMs(SystemClock.elapsedRealtimeNanos()));
+        ProjectionService service=instance;
+        if(service!=null){b.putFloat("directContactField",service.directContactField);b.putInt("directContactBit",service.directContactBit);}
         b.putInt("postureStatus",pose.postureStatus);b.putBoolean("fullyOpened",pose.fullyOpened());
     }
     static void mirrorTest(int seconds){ProjectionService s=instance;if(s!=null)s.main.post(()->{
@@ -124,7 +192,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
     });}
     static Bundle mirrorLease(){ProjectionService s=instance;return s!=null&&s.mirrorPreview!=null?s.mirrorPreview.lease():new Bundle();}
     static void mirrorObserve(int seconds){ProjectionService s=instance;if(s!=null)s.main.post(()->{s.mirrorObserveUntil=seconds<=0?0:SystemClock.uptimeMillis()+Math.min(40,seconds)*1000L;s.update();});}
-    private final Runnable tick=new Runnable(){public void run(){if(connected){update();main.postDelayed(this,40);}}};
+    private final Runnable tick=()->{if(connected)update();};
     private final DisplayManager.DisplayListener displayListener=new DisplayManager.DisplayListener(){
         public void onDisplayAdded(int id){update();} public void onDisplayRemoved(int id){update();} public void onDisplayChanged(int id){update();}
     };
@@ -138,20 +206,23 @@ public final class ProjectionService extends AccessibilityService implements Sen
         // Match the vendor sensor used by this firmware's physical fold policy.
         // Never infer closure from the active panel: our controller overrides that panel.
         for(Sensor candidate:sensors.getSensorList(Sensor.TYPE_ALL)){
-            if(!"xiaomi.sensor.fold_status".equals(candidate.getStringType()))continue;
-            if(!"fold_status FOLD_STATUS Wakeup".equals(candidate.getName()))continue;
-            physicalFoldSensor=candidate;break;
+            if("xiaomi.sensor.fold_status".equals(candidate.getStringType())
+                    &&"fold_status FOLD_STATUS Wakeup".equals(candidate.getName()))physicalFoldSensor=candidate;
+            if("lhasa".equals(Build.DEVICE)&&"xiaomi.sensor.dighall".equals(candidate.getStringType())
+                    &&"ak0991x Digital Hall Sensor Non-wakeup".equals(candidate.getName()))directContactSensor=candidate;
         }
         // The coarse flag stays CLOSED until about 31 degrees on lhasa.
         // Only this device's contact and posture fields have been checked
         // against real closure, flat tilt, and folding.
-        foldPose=new FoldPose(physicalFoldSensor!=null,"lhasa".equals(Build.DEVICE));
+        foldPose=new FoldPose(physicalFoldSensor!=null,"lhasa".equals(Build.DEVICE),directContactSensor!=null);
         if(physicalFoldSensor!=null&&!sensors.registerListener(this,physicalFoldSensor,20000)){
-            physicalFoldSensor=null;foldPose=new FoldPose(false);
+            physicalFoldSensor=null;foldPose=new FoldPose(false,"lhasa".equals(Build.DEVICE),directContactSensor!=null);
         }
+        // The controller's shell UID samples dighall. The firmware suspends
+        // continuous sensor delivery to background app UIDs, even with a11y.
         Sensor sensor=sensors.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE);if(sensor!=null)sensors.registerListener(this,sensor,20000);
         displays.registerDisplayListener(displayListener,main);status="已开启，等待桌面";main.post(tick);
-        Log.i("ProjectionDesktop","CONNECTED homes="+homes+" physicalFold="+(physicalFoldSensor!=null));
+        Log.i("ProjectionDesktop","CONNECTED homes="+homes+" physicalFold="+(physicalFoldSensor!=null)+" directContact="+(directContactSensor!=null));
         MobileHelper.start(this);
 
     }
@@ -181,6 +252,34 @@ public final class ProjectionService extends AccessibilityService implements Sen
         }
         return systemUi?1:0;
     }
+    static void refreshAppScope(){
+        ProjectionService s=instance;
+        if(s!=null)s.main.post(()->{s.appScopeDirty=true;s.update();});
+    }
+    private boolean appBlocked(long now,boolean locked){
+        if(AnimationSettings.blacklistedApps.isEmpty())return false;
+        if(appScopeDirty||now-appScopeAt>=1000){
+            appScopeDirty=false;appScopeAt=now;
+            String candidate=null;int layer=Integer.MIN_VALUE;boolean focused=false,unresolvedFocus=false;
+            for(AccessibilityWindowInfo w:getWindows()){
+                if(w.getType()!=AccessibilityWindowInfo.TYPE_APPLICATION)continue;
+                AccessibilityNodeInfo root=w.getRoot();if(root==null){if(w.isActive()||w.isFocused())unresolvedFocus=true;continue;}
+                try{
+                    String pkg=root.getPackageName()==null?null:root.getPackageName().toString();
+                    if(pkg==null||"com.android.systemui".equals(pkg))continue;
+                    boolean current=w.isActive()||w.isFocused();
+                    if(candidate==null||current&&!focused||current==focused&&w.getLayer()>layer){
+                        candidate=pkg;layer=w.getLayer();focused=current;
+                    }
+                }finally{root.recycle();}
+            }
+            // A real lock screen is its own scene; a foreground camera/call can still be excluded.
+            if(unresolvedFocus&&!focused)candidate=null;
+            else if(locked&&!focused)candidate="com.android.systemui";
+            appBlacklist.observe(candidate);
+        }
+        return appBlacklist.blocked(AnimationSettings.blacklistedApps);
+    }
     private static String key(Display d,Point p) {return d.getMode().getPhysicalWidth()+"x"+d.getMode().getPhysicalHeight()+":"+d.getRotation()+":"+p.x+"x"+p.y;}
     private static boolean inner(Display d) {return Math.min(d.getMode().getPhysicalWidth(),d.getMode().getPhysicalHeight())>=1600;}
     private boolean motion() {return ProjectionMath.endpointOpacity(hinge,primaryInner,AnimationSettings.startAngle,foldPose.blocksProjection())>0;}
@@ -196,17 +295,26 @@ public final class ProjectionService extends AccessibilityService implements Sen
         for(int i=0;i<node.getChildCount();i++){AccessibilityNodeInfo c=node.getChild(i);if(c!=null)try{collect(c,value,depth+1);}finally{c.recycle();}}
     }
     private void update() {
+        try{updateState();}finally{
+            signalRenderer();main.removeCallbacks(tick);
+            if(connected)main.postDelayed(tick,ProjectionCadence.delay(standby,foldPose.blocksProjection(),screenFadeActive,coverToken,pending,homeUncertain));
+        }
+    }
+    private void updateState() {
         if(!connected)return;
+        stateUpdates++;
+        foldPose=foldPose.expireDirectContact(SystemClock.elapsedRealtimeNanos());
         hinge=foldPose.angle();
         touchObservation.update(AnimationSettings.swipeRestore);
         long now=SystemClock.uptimeMillis();boolean global=AnimationSettings.globalEnabled;
         boolean home=!global&&home();if(home)lastHomeAt=now;
         Display d=displays.getDisplay(0);primaryInner=d!=null && inner(d);
-        if(d!=null){Point size=new Point();d.getRealSize(size);entrySceneStarted(size.x,size.y,d.getRotation(),primaryInner);}
+        cacheDisplay(d);
         standby=!getSystemService(PowerManager.class).isInteractive();
         boolean locked=getSystemService(KeyguardManager.class).isKeyguardLocked();
         lockScreen=global?locked&&!standby:livePreferred&&lockGate.visible(locked,!standby,locked&&!standby?lockWindowState():0,now);
-        allowed=d!=null&&!standby&&(global || home || lockScreen || (homeUncertain && now-lastHomeAt<1000));updatedAt=now;
+        appBlocked=appBlocked(now,locked);
+        allowed=d!=null&&!standby&&!appBlocked&&(global || home || lockScreen || (homeUncertain && now-lastHomeAt<1000));updatedAt=now;
         holdGate.configure(AnimationSettings.holdSeconds,AnimationSettings.startAngle);
         boolean held=holdGate.update(now,hinge,allowed);
         if(held!=foldHeld){foldHeld=held;Log.i("ProjectionHold",(held?"RETURN_TO_NORMAL":"FOLLOW_HINGE")+" angle="+hinge);}
@@ -238,6 +346,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
         }
         if(mirrorPreview!=null){Log.i("ProjectionDesktop","MIRROR_STOP remaining="+(mirrorUntil-now)+" home="+home+" allowed="+allowed+" display="+(d==null?-1:d.getState()));mirrorPreview.close();mirrorPreview=null;mirrorUntil=0;}
         if(now>=mirrorUntil)mirrorFold=false;
+        if(appBlocked){reset();closeWindow();scene="";status="当前应用在黑名单中，动画已暂停";return;}
         if(livePreferred){reset();closeWindow();status=now<liveUntil?(global?"连续投影已就绪，等待亮屏":"连续投影已就绪，等待桌面或锁屏"):"连续投影助手未连接";return;}
         if(now<mirrorObserveUntil){reset();closeWindow();return;}
         if(d==null || d.getState()!=Display.STATE_ON || !home) {reset();closeWindow();scene="";return;}
@@ -318,7 +427,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
         try{manager.removeViewImmediate(old);}catch(RuntimeException e){Log.w("ProjectionDesktop","window remove",e);}
     }
     static void stop() {ProjectionService service=instance;if(service!=null)service.main.post(service::disableSelf);}
-    @Override public void onAccessibilityEvent(AccessibilityEvent e){update();}
+    @Override public void onAccessibilityEvent(AccessibilityEvent e){appScopeDirty=true;update();}
     @Override public void onMotionEvent(MotionEvent e){
         long now=SystemClock.uptimeMillis();
         if(!AnimationSettings.swipeRestore||!touchObservation.ready()||!allowed||!e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)
@@ -342,16 +451,38 @@ public final class ProjectionService extends AccessibilityService implements Sen
     public void onSensorChanged(SensorEvent e){
         if(e.values.length==0)return;
         FoldPose before=foldPose,next=before;
-        if(e.sensor==physicalFoldSensor)next=before.withFoldEvent(e.values);
-        else if(e.sensor.getType()==Sensor.TYPE_HINGE_ANGLE)next=before.withAngle(e.values[0]);
+        if(e.sensor==physicalFoldSensor)next=before.withFoldEvent(e.values,e.timestamp);
+        else if(e.sensor.getType()==Sensor.TYPE_HINGE_ANGLE)next=before.withAngle(e.values[0],e.timestamp);
         if(next==before)return;
         foldPose=next;
-        if(next.foldStatus!=before.foldStatus||next.contactStatus!=before.contactStatus||next.postureStatus!=before.postureStatus||next.fullyOpened()!=before.fullyOpened()){
+        if(next.foldStatus!=before.foldStatus||next.contactStatus!=before.contactStatus||next.postureStatus!=before.postureStatus||next.fullyOpened()!=before.fullyOpened()||next.closedLatched()!=before.closedLatched()||next.directContactStatus!=before.directContactStatus){
             fingerSwipe.reset();
-            Log.i("ProjectionFold","PHYSICAL status="+next.foldStatus+" contact="+next.contactStatus+" posture="+next.postureStatus+" rawAngle="+next.rawAngle+" blocked="+next.blocksProjection());
+            Log.i("ProjectionFold","PHYSICAL status="+next.foldStatus+" contact="+next.contactStatus+" posture="+next.postureStatus+" rawAngle="+next.rawAngle+" blocked="+next.blocksProjection()+" closedLatched="+next.closedLatched()+" directContact="+next.directContactStatus);
         }
-        update();
+        if(Float.compare(before.angle(),next.angle())!=0||before.blocksProjection()!=next.blocksProjection()||before.fullyOpened()!=next.fullyOpened())update();
     }
     public void onAccuracyChanged(Sensor sensor,int accuracy){}
+    static void deliverDirectContact(Bundle sample){
+        ProjectionService service=instance;
+        if(service==null||!"lhasa".equals(Build.DEVICE))return;
+        float[] values=sample.getFloatArray("directContactValues");
+        final float[] copy=values==null?null:values.clone();
+        long at=sample.getLong("directContactAt");boolean available=sample.getBoolean("directContactAvailable");
+        service.main.post(()->{
+            if(instance!=service||!service.connected)return;
+            FoldPose before=foldPose;
+            FoldPose next=before.withDirectContactAvailable(available).withDirectContactEvent(copy,at);
+            if(next==before)return;
+            foldPose=next;
+            if(copy!=null&&copy.length>=9&&next.directContactAgeMs(at)==0){service.directContactField=copy[4];service.directContactBit=(int)copy[0];}
+            if(next.directContactStatus!=before.directContactStatus){
+                service.fingerSwipe.reset();
+                Log.i("ProjectionHall","CONTACT="+next.directContactStatus+" bit="+service.directContactBit+" field="+service.directContactField+" rawAngle="+next.rawAngle+" blocked="+next.blocksProjection());
+                service.update();
+            }
+            // Fresh unchanged Hall samples only refresh age/field. The regular
+            // tick handles expiry; repeated readings need no scene/display work.
+        });
+    }
     @Override public void onDestroy(){touchObservation.close();connected=false;instance=null;allowed=false;updatedAt=0;status="已停用";MobileHelper.stop();main.removeCallbacks(tick);if(mirrorPreview!=null){mirrorPreview.close();mirrorPreview=null;}reset();closeWindow();sensors.unregisterListener(this);displays.unregisterDisplayListener(displayListener);worker.shutdown();super.onDestroy();}
 }

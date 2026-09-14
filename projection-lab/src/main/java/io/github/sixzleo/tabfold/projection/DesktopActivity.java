@@ -21,13 +21,14 @@ public final class DesktopActivity extends Activity {
     private TextView state,hint;
     private TextView mobileStatus;
     private Button service;
+    private Button blacklist;
     private SeekBar blur,stretch,open,close,holdTime,startAngle;
     private Switch swipeRestore;
-    private boolean waitingOverlay;
+    private boolean waitingNotifications;
     private final Runnable tick=new Runnable(){public void run(){refreshStatus();handler.postDelayed(this,700);}};
     private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
     @Override public void onCreate(Bundle saved){
-        super.onCreate(saved);waitingOverlay=saved!=null&&saved.getBoolean("waitingOverlay");AnimationSettings.init(this);MobileHelper.init(this);
+        super.onCreate(saved);waitingNotifications=saved!=null&&saved.getBoolean("waitingNotifications");AnimationSettings.init(this);MobileHelper.init(this);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);
         scroll.setClipToPadding(false);setContentView(scroll);
@@ -49,12 +50,12 @@ public final class DesktopActivity extends Activity {
         button(mobile,"配对",this::pairWireless,true);
         mobile.addView(text("找不到开发者选项？"+DeveloperOptionsGuide.XIAOMI_PATH,12,MUTED));
         button(mobile,"如何开启开发者选项",()->DeveloperOptionsGuide.show(this),false);
-        mobile.addView(text("首次需开启无线调试并输入系统配对码。重启后若连接不上，请重新开启无线调试；一般无需再次配对。小米还需开启「USB 调试（安全设置）」。",12,MUTED));
+        mobile.addView(text("默认打开配对小窗应用，在系统无线调试中打开配对码窗口，再回到小窗输入 6 位码。重启后若连接不上，请重新开启无线调试；一般无需再次配对。小米还需开启「USB 调试（安全设置）」。",12,MUTED));
         section(page,"② 开启无障碍","助手连接成功后，再开启「玻璃投影」无障碍服务以显示动画。");
         LinearLayout accessibility=card(page);
         service=button(accessibility,"开启无障碍",()->{
             if(!MobileHelper.ready()&&ProjectionService.instance==null){Toast.makeText(this,"请先完成第 1 步：连接手机端助手",Toast.LENGTH_SHORT).show();return;}
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            AccessibilitySettings.open(this);
         },true);
         section(page,"后台运行","允许后台运行，退出设置页后也能继续使用。");
         LinearLayout background=card(page);
@@ -67,6 +68,8 @@ public final class DesktopActivity extends Activity {
         global.setOnCheckedChangeListener((b,checked)->{AnimationSettings.global(checked);refreshStatus();});
         scope.addView(global,new LinearLayout.LayoutParams(-1,dp(56)));
         scope.addView(text("关闭：仅桌面和锁屏。开启：扩展到其他应用的可捕获画面。",13,MUTED));
+        blacklist=button(scope,"应用黑名单",()->startActivity(new Intent(this,AppBlacklistActivity.class)),false);
+        scope.addView(text("选中的应用不显示动画，离开后自动恢复。",12,MUTED));
         section(page,"恢复正常画面","悬停或滑动时，约 220 毫秒平滑回放；继续开合超过 10° 后重新跟随。");
         LinearLayout restore=card(page);
         holdTime=slider(restore,"悬停等待时间","默认 3 秒 · 在此时间内角度摆幅不超过 10° 时恢复。",1,10,1,AnimationSettings.holdSeconds," 秒",v->{AnimationSettings.hold(v);refreshStatus();});
@@ -93,11 +96,13 @@ public final class DesktopActivity extends Activity {
         Button pause=button(actions,"暂停动画",()->{ProjectionService.stop();refreshStatus();},false);pause.setLayoutParams(new LinearLayout.LayoutParams(0,dp(52),1));
         TextView foot=text("设置自动保存，下次开合生效。",12,MUTED);foot.setGravity(Gravity.CENTER);foot.setPadding(0,dp(15),0,0);page.addView(foot);
         button(page,"无线连接开源许可",this::showNotices,false);
-        button(page,"其他配对输入方式",this::alternativePairing,false);
+        button(page,"更多配对方式",this::alternativePairing,false);
+        button(page,"检查更新",()->startActivity(new Intent(this,UpdateActivity.class)),false);
         scroll.requestApplyInsets();refreshStatus();
     }
     private void refreshStatus(){
         if(state==null)return;
+        if(blacklist!=null)blacklist.setText("应用黑名单 · 已选 "+AnimationSettings.blacklistedApps.size()+" 个");
         boolean enabled=ProjectionService.instance!=null;
         boolean ready=enabled&&MobileHelper.ready()&&SystemClock.uptimeMillis()-ProjectionService.helperAt<3000;
         state.setText(ready?"●  动画已就绪":MobileHelper.ready()?enabled?"○  正在启动动画":"○  等待开启无障碍":"○  等待连接助手");
@@ -126,19 +131,29 @@ public final class DesktopActivity extends Activity {
         WirelessPairingActivity.launch(this);
     }
     private void alternativePairing(){
-        new AlertDialog.Builder(this).setTitle("其他配对输入方式")
-            .setMessage("部分设置页面会隐藏悬浮控件，小米通知也可能无法直接回复；推荐使用默认的系统小窗配对。")
-            .setPositiveButton("配对小窗",(d,w)->{
-                if(Settings.canDrawOverlays(this))launchPairing(true);
-                else{waitingOverlay=true;try{startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,android.net.Uri.parse("package:"+getPackageName())));}catch(android.content.ActivityNotFoundException e){waitingOverlay=false;Toast.makeText(this,"请在系统应用权限中允许显示悬浮窗",Toast.LENGTH_LONG).show();}}
-            })
-            .setNeutralButton("使用通知配对",(d,w)->{
-                if(checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},72);
-                else launchPairing(false);
-            })
+        new AlertDialog.Builder(this).setTitle("更多配对方式")
+            .setMessage("也可以在通知栏输入系统显示的 6 位配对码。请保持系统配对码窗口打开。")
+            .setPositiveButton("通知配对",(d,w)->startNotificationPairing())
             .setNegativeButton("取消",null).show();
     }
-    private void launchPairing(boolean floating){startForegroundService(new Intent(this,WirelessPairingService.class).putExtra("floating",floating));openWirelessSettings();}
+    private void startNotificationPairing(){
+        if(!DeveloperOptionsGuide.enabled(this)){DeveloperOptionsGuide.show(this);return;}
+        if(checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},72);return;}
+        android.app.NotificationManager manager=getSystemService(android.app.NotificationManager.class);
+        android.app.NotificationChannel channel=manager.getNotificationChannel(WirelessPairingService.CHANNEL);
+        if(!manager.areNotificationsEnabled()||channel!=null&&channel.getImportance()==android.app.NotificationManager.IMPORTANCE_NONE){
+            new AlertDialog.Builder(this).setTitle("开启配对通知").setMessage("通知配对需要显示通知并在其中输入配对码。请开启玻璃投影的配对通知。")
+                .setPositiveButton("打开通知设置",(d,w)->{
+                    waitingNotifications=true;
+                    Intent settings=new Intent(channel==null?Settings.ACTION_APP_NOTIFICATION_SETTINGS:Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE,getPackageName());
+                    if(channel!=null)settings.putExtra(Settings.EXTRA_CHANNEL_ID,WirelessPairingService.CHANNEL);
+                    try{startActivity(settings);}catch(android.content.ActivityNotFoundException e){waitingNotifications=false;Toast.makeText(this,"请在应用信息中开启通知",Toast.LENGTH_LONG).show();}
+                }).setNegativeButton("取消",null).show();return;
+        }
+        launchPairing();
+    }
+    private void launchPairing(){startForegroundService(new Intent(this,WirelessPairingService.class));Toast.makeText(this,"打开系统配对码窗口后，下拉通知栏输入配对码",Toast.LENGTH_LONG).show();openWirelessSettings();}
     private void openWirelessSettings(){
         WirelessSettings.open(this);
     }
@@ -156,7 +171,7 @@ public final class DesktopActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){
         super.onRequestPermissionsResult(request,permissions,results);
-        if(request==72){if(results.length>0&&results[0]==android.content.pm.PackageManager.PERMISSION_GRANTED)launchPairing(false);else Toast.makeText(this,"可以改用配对小窗，无需通知内输入",Toast.LENGTH_LONG).show();}
+        if(request==72){if(results.length>0&&results[0]==android.content.pm.PackageManager.PERMISSION_GRANTED)startNotificationPairing();else Toast.makeText(this,"通知配对需要通知权限，请在应用信息中允许通知后重试",Toast.LENGTH_LONG).show();}
     }
     private TextView text(String value,int size,int color){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(color);t.setFontFeatureSettings("tnum");return t;}
     private GradientDrawable background(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
@@ -192,7 +207,7 @@ public final class DesktopActivity extends Activity {
             public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });bar.setStateDescription(initial+unit);return bar;
     }
-    @Override public void onResume(){super.onResume();if(waitingOverlay){waitingOverlay=false;if(Settings.canDrawOverlays(this))launchPairing(true);}if(MobileHelper.prefersWireless())MobileHelper.prepare(this);handler.removeCallbacks(tick);handler.post(tick);}
-    @Override public void onSaveInstanceState(Bundle out){out.putBoolean("waitingOverlay",waitingOverlay);super.onSaveInstanceState(out);}
+    @Override public void onResume(){super.onResume();if(waitingNotifications){waitingNotifications=false;if(getSystemService(android.app.NotificationManager.class).areNotificationsEnabled())startNotificationPairing();}if(MobileHelper.prefersWireless())MobileHelper.prepare(this);handler.removeCallbacks(tick);handler.post(tick);}
+    @Override public void onSaveInstanceState(Bundle out){out.putBoolean("waitingNotifications",waitingNotifications);super.onSaveInstanceState(out);}
     @Override public void onPause(){handler.removeCallbacks(tick);super.onPause();}
 }

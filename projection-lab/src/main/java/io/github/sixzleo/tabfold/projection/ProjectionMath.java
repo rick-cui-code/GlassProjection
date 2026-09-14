@@ -27,6 +27,9 @@ public final class ProjectionMath {
         return followAngle(current,target,elapsedMs,false);
     }
     public static float followAngle(float current,float target,long elapsedMs,boolean inner){
+        return followAngle(current,target,elapsedMs,inner,0);
+    }
+    public static float followAngle(float current,float target,long elapsedMs,boolean inner,float responsiveness){
         if(!Float.isFinite(target))return current;
         if(!Float.isFinite(current))return target;
         // Measure onset from the active screen's clear endpoint. Inner folding
@@ -40,6 +43,7 @@ public final class ProjectionMath {
         // Ease into this extra smoothing over 2-4 degrees, then out over 9-14.
         float visibleOnset=smoothUnit((onsetAngle-2)/2)*(1-smoothUnit((onsetAngle-9)/5));
         double timeConstantMs=12+12*(1-smoothUnit((onsetAngle-10)/4))+48*visibleOnset;
+        timeConstantMs+=(12-timeConstantMs)*Math.max(0,Math.min(1,responsiveness));
         float step=(float)(1-Math.exp(-Math.max(0,elapsedMs)/timeConstantMs));
         return current+(target-current)*step;
     }

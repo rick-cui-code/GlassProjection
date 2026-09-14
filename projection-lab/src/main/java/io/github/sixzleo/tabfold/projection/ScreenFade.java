@@ -2,8 +2,8 @@ package io.github.sixzleo.tabfold.projection;
 
 /** Angle-led fade before the real switch, bounded layout wait, then time-led reveal. */
 public final class ScreenFade {
-    public static final float LEAD_DEGREES=12;
-    public static final long REVEAL_MS=180,MAX_WAIT_MS=900;
+    public static final float LEAD_DEGREES=8;
+    public static final long REVEAL_MS=120,CANCEL_MS=80,MAX_WAIT_MS=900;
     private static final int IDLE=0,APPROACH=1,WAIT=2,REVEAL=3,CANCEL=4;
     private int phase,direction,open=60,close=120;
     private float extreme=Float.NaN,dark,cancelFrom;
@@ -43,7 +43,7 @@ public final class ScreenFade {
         }
         if(phase==CANCEL){
             if(phaseAt<0)phaseAt=now;
-            dark=cancelFrom*(1-smooth((now-phaseAt)/120f));
+            dark=cancelFrom*(1-smooth((now-phaseAt)/(float)CANCEL_MS));
             if(dark==0){phase=IDLE;backing=false;}else return;
         }
         boolean toward=inner?direction<0:direction>0;
@@ -69,7 +69,7 @@ public final class ScreenFade {
     public float cancelFrom(){return cancelFrom;}
     public static float sample(long now,int mode,long at,float fallback,float from){
         if(mode==REVEAL)return 1-smooth((now-at)/(float)REVEAL_MS);
-        if(mode==CANCEL&&at>=0)return from*(1-smooth((now-at)/120f));
+        if(mode==CANCEL&&at>=0)return from*(1-smooth((now-at)/(float)CANCEL_MS));
         return fallback;
     }
     public boolean active(){return phase!=IDLE;}

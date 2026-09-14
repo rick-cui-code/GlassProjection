@@ -7,8 +7,8 @@ android {
         applicationId = "io.github.sixzleo.tabfold.projection"
         minSdk = 33
         targetSdk = 35
-        versionCode = 73
-        versionName = "0.4.16"
+        versionCode = 84
+        versionName = "0.4.27"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -17,6 +17,7 @@ android {
     buildFeatures { aidl = true }
 }
 dependencies {
+    implementation("com.android.tools.build:apksig:8.6.1")
     implementation("androidx.annotation:annotation:1.9.1")
     implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
     implementation("org.conscrypt:conscrypt-android:2.5.3")

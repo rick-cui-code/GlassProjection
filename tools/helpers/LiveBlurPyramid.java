@@ -9,6 +9,10 @@ final class LiveBlurPyramid {
     static final float CONTENT_SCALE=.88f;
     final int[] levels=new int[LEVELS],scratch=new int[LEVELS],sizes=new int[LEVELS];
     final int framebuffer,copy,blur;
+    final int copyPos,blurPos,copySource,copyScale,copyExtent,copyAxis,copyTexel,copyMatrix,blurSource,blurStep;
+    private int boundProgram,renderPos,renderSize,renderScale;
+    private final int[] renderLevels=new int[LEVELS];
+    private boolean verified;
     final FloatBuffer vertices;
     // Extend source colors across the canonical left/right sides before blur.
     // Only top/bottom retain black padding for the receding paper contour.
@@ -21,11 +25,16 @@ final class LiveBlurPyramid {
         +"gl_FragColor=vec4(pow(max(c,vec3(0.)),vec3(1./2.2)),1.);}";
     LiveBlurPyramid(int size,FloatBuffer vertices){
         this.vertices=vertices;copy=program(COPY);blur=program(BLUR);
+        copyPos=GLES20.glGetAttribLocation(copy,"pos");blurPos=GLES20.glGetAttribLocation(blur,"pos");
+        copySource=GLES20.glGetUniformLocation(copy,"source");copyScale=GLES20.glGetUniformLocation(copy,"contentScale");
+        copyExtent=GLES20.glGetUniformLocation(copy,"screenExtent");copyAxis=GLES20.glGetUniformLocation(copy,"horizontalAxis");
+        copyTexel=GLES20.glGetUniformLocation(copy,"sourceTexel");copyMatrix=GLES20.glGetUniformLocation(copy,"tex");
+        blurSource=GLES20.glGetUniformLocation(blur,"source");blurStep=GLES20.glGetUniformLocation(blur,"stepSize");
         int[] f=new int[1];GLES20.glGenFramebuffers(1,f,0);framebuffer=f[0];
-        GLES20.glGenTextures(LEVELS,levels,0);GLES20.glGenTextures(LEVELS,scratch,0);
+        GLES20.glGenTextures(LEVELS,levels,0);GLES20.glGenTextures(LEVELS-1,scratch,1);
         for(int i=0;i<LEVELS;i++){
             sizes[i]=Math.max(1,(size+(1<<i)-1)>>i);
-            allocate(levels[i],sizes[i]);allocate(scratch[i],sizes[i]);
+            allocate(levels[i],sizes[i]);if(i>0)allocate(scratch[i],sizes[i]);
         }
     }
     static int program(String fragment){
@@ -48,37 +57,43 @@ final class LiveBlurPyramid {
     void target(int texture,int size,int program){
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER,framebuffer);
         GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER,GLES20.GL_COLOR_ATTACHMENT0,GLES20.GL_TEXTURE_2D,texture,0);
-        if(GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER)!=GLES20.GL_FRAMEBUFFER_COMPLETE)throw new IllegalStateException("Blur framebuffer incomplete");
+        if(!verified&&GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER)!=GLES20.GL_FRAMEBUFFER_COMPLETE)throw new IllegalStateException("Blur framebuffer incomplete");
         GLES20.glViewport(0,0,size,size);GLES20.glUseProgram(program);
-        int pos=GLES20.glGetAttribLocation(program,"pos");vertices.position(0);
+        int pos=program==copy?copyPos:blurPos;vertices.position(0);
         GLES20.glEnableVertexAttribArray(pos);GLES20.glVertexAttribPointer(pos,2,GLES20.GL_FLOAT,false,0,vertices);
     }
     void update(int external,float[] matrix,int screenWidth,int screenHeight,int turn){
         GLES20.glActiveTexture(GLES20.GL_TEXTURE7);GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,external);
-        target(levels[0],sizes[0],copy);GLES20.glUniform1i(GLES20.glGetUniformLocation(copy,"source"),7);
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(copy,"contentScale"),CONTENT_SCALE);
+        target(levels[0],sizes[0],copy);GLES20.glUniform1i(copySource,7);
+        GLES20.glUniform1f(copyScale,CONTENT_SCALE);
         float longest=Math.max(screenWidth,screenHeight);
-        GLES20.glUniform2f(GLES20.glGetUniformLocation(copy,"screenExtent"),screenWidth/longest,screenHeight/longest);
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(copy,"horizontalAxis"),turn%2);
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(copy,"sourceTexel"),1f/sizes[0]);
-        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(copy,"tex"),1,false,matrix,0);GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
+        GLES20.glUniform2f(copyExtent,screenWidth/longest,screenHeight/longest);
+        GLES20.glUniform1f(copyAxis,turn%2);
+        GLES20.glUniform1f(copyTexel,1f/sizes[0]);
+        GLES20.glUniformMatrix4fv(copyMatrix,1,false,matrix,0);GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         for(int i=1;i<LEVELS;i++){
             target(scratch[i],sizes[i],blur);GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,levels[i-1]);
-            GLES20.glUniform1i(GLES20.glGetUniformLocation(blur,"source"),0);
-            GLES20.glUniform2f(GLES20.glGetUniformLocation(blur,"stepSize"),1f/sizes[i],0);GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
+            GLES20.glUniform1i(blurSource,0);
+            GLES20.glUniform2f(blurStep,1f/sizes[i],0);GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
             target(levels[i],sizes[i],blur);GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,scratch[i]);
-            GLES20.glUniform2f(GLES20.glGetUniformLocation(blur,"stepSize"),0,1f/sizes[i]);GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
+            GLES20.glUniform2f(blurStep,0,1f/sizes[i]);GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
         }
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER,0);
+        verified=true;
     }
     void bind(int program,int width,int height){
+        if(boundProgram!=program){
+            boundProgram=program;renderPos=GLES20.glGetAttribLocation(program,"pos");
+            renderSize=GLES20.glGetUniformLocation(program,"bufferSize");renderScale=GLES20.glGetUniformLocation(program,"contentScale");
+            for(int i=0;i<LEVELS;i++)renderLevels[i]=GLES20.glGetUniformLocation(program,"level"+i);
+        }
         GLES20.glUseProgram(program);GLES20.glViewport(0,0,width,height);
-        int pos=GLES20.glGetAttribLocation(program,"pos");vertices.position(0);
+        int pos=renderPos;vertices.position(0);
         GLES20.glEnableVertexAttribArray(pos);GLES20.glVertexAttribPointer(pos,2,GLES20.GL_FLOAT,false,0,vertices);
-        for(int i=0;i<LEVELS;i++){GLES20.glActiveTexture(GLES20.GL_TEXTURE0+i);GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,levels[i]);GLES20.glUniform1i(GLES20.glGetUniformLocation(program,"level"+i),i);}
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"bufferSize"),sizes[0]);
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"contentScale"),CONTENT_SCALE);
+        for(int i=0;i<LEVELS;i++){GLES20.glActiveTexture(GLES20.GL_TEXTURE0+i);GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,levels[i]);GLES20.glUniform1i(renderLevels[i],i);}
+        GLES20.glUniform1f(renderSize,sizes[0]);
+        GLES20.glUniform1f(renderScale,CONTENT_SCALE);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
     }
     void close(){GLES20.glDeleteTextures(LEVELS,levels,0);GLES20.glDeleteTextures(LEVELS,scratch,0);GLES20.glDeleteFramebuffers(1,new int[]{framebuffer},0);GLES20.glDeleteProgram(copy);GLES20.glDeleteProgram(blur);}

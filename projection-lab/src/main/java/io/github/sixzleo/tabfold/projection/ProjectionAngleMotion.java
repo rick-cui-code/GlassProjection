@@ -6,6 +6,7 @@ public final class ProjectionAngleMotion {
     private float angle=Float.NaN,flatFrom;
     private long lastAt,flatAt;
     private boolean flat;
+    private final AdaptiveAngleFollow follower=new AdaptiveAngleFollow();
 
     public static boolean hardBlocked(boolean blocked,boolean fullyOpened,boolean inner){
         // Only the inner flat endpoint may finish an existing animation.
@@ -15,17 +16,22 @@ public final class ProjectionAngleMotion {
     public float update(long now,float target,boolean inner,boolean blocked,boolean fullyOpened,boolean sceneChanged){
         boolean nextFlat=inner&&fullyOpened;
         if(!Float.isFinite(target)){
+            follower.reset(now,target);
             angle=Float.NaN;flat=false;lastAt=now;return angle;
         }
         if(sceneChanged||!Float.isFinite(angle)||hardBlocked(blocked,fullyOpened,inner)){
+            follower.reset(now,target);
             angle=nextFlat?180:target;flatFrom=angle;flatAt=lastAt=now;flat=nextFlat;return angle;
         }
         if(nextFlat){
+            follower.reset(now,target);
             if(!flat){flatFrom=angle;flatAt=now;}
             float t=Math.max(0,Math.min(1,(now-flatAt)/(float)FLAT_RETURN_MS));
             angle=flatFrom+(180-flatFrom)*t*t*(3-2*t);
         }else if(!flat){
-            angle=ProjectionMath.followAngle(angle,target,now-lastAt,inner);
+            angle=follower.update(now,angle,target,inner);
+        }else{
+            follower.reset(now,target);
         }
         // A reversal keeps the last visible pose on its first frame, then
         // follows the hinge. There is no queued finish or reset to raw angle.

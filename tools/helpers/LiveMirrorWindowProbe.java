@@ -27,6 +27,10 @@ public final class LiveMirrorWindowProbe {
     static boolean continuous;
     static volatile long progressAt;
     static long renewAt;
+    static final RenderWakeSignal renderWake=new RenderWakeSignal();
+    static boolean wakeNotifications;
+    static boolean pushedFrames;
+    static final RenderFrameCache frameCache=new RenderFrameCache();
     static java.nio.channels.FileLock processLock;
     static java.io.RandomAccessFile lockFile;
     static int durationMs=10000;
@@ -64,6 +68,15 @@ public final class LiveMirrorWindowProbe {
             if(holder==null)throw new IllegalStateException("No projection provider");
             provider=holder.getClass().getField("provider").get(holder);
             providerCall=Class.forName("android.content.IContentProvider").getMethod("call",android.content.AttributionSource.class,String.class,String.class,String.class,Bundle.class);
+            if(foldMode){
+                Bundle subscription=new Bundle();
+                subscription.putBinder("listener",new Messenger(new Handler(Looper.getMainLooper(),message->{
+                    Bundle update=message.peekData();if(update!=null&&update.containsKey("_revision"))frameCache.accept(update,true);
+                    renderWake.signal();return true;
+                })).getBinder());
+                Bundle reply=call("mirror-listen",null,subscription);
+                wakeNotifications=reply.getBoolean("supported");pushedFrames=reply.getBoolean("pushFrames");
+            }
             if(continuous){
                 progressAt=SystemClock.uptimeMillis();
                 new Thread(LiveMirrorWindowProbe::runContinuous,"mirror-supervisor").start();
@@ -99,7 +112,10 @@ public final class LiveMirrorWindowProbe {
         }catch(Throwable error){failed=true;error.printStackTrace();finish();}
     }
     static Bundle call(String method,String arg)throws Exception {
-        return (Bundle)providerCall.invoke(provider,new android.content.AttributionSource.Builder(2000).setPackageName("com.android.shell").build(),AUTHORITY,method,arg,null);
+        return call(method,arg,null);
+    }
+    static Bundle call(String method,String arg,Bundle extras)throws Exception {
+        return (Bundle)providerCall.invoke(provider,new android.content.AttributionSource.Builder(2000).setPackageName("com.android.shell").build(),AUTHORITY,method,arg,extras);
     }
     static void renew()throws Exception{
         long now=SystemClock.uptimeMillis();progressAt=now;
@@ -170,10 +186,15 @@ public final class LiveMirrorWindowProbe {
             if(!EGL14.eglMakeCurrent(display,window,window,context))throw new IllegalStateException("eglMakeCurrent");
             int program=GLES20.glCreateProgram();GLES20.glAttachShader(program,shader(GLES20.GL_VERTEX_SHADER,VERT));GLES20.glAttachShader(program,shader(GLES20.GL_FRAGMENT_SHADER,foldMode?FOLD_FRAG:FRAG));GLES20.glLinkProgram(program);
             int[] linked=new int[1];GLES20.glGetProgramiv(program,GLES20.GL_LINK_STATUS,linked,0);if(linked[0]==0)throw new IllegalStateException(GLES20.glGetProgramInfoLog(program));
+            int uTilt=GLES20.glGetUniformLocation(program,"tilt"),uCrop=GLES20.glGetUniformLocation(program,"crop");
+            int uInner=GLES20.glGetUniformLocation(program,"inner"),uTurn=GLES20.glGetUniformLocation(program,"turn");
+            int uOpacity=GLES20.glGetUniformLocation(program,"opacity"),uStrength=GLES20.glGetUniformLocation(program,"blurStrength");
+            int uScreen=GLES20.glGetUniformLocation(program,"screen"),uDarkness=GLES20.glGetUniformLocation(program,"screenDarkness");
+            int uFade=GLES20.glGetUniformLocation(program,"screenFadeActive"),uTex=GLES20.glGetUniformLocation(program,"tex");
             GLES20.glUseProgram(program);int[] textures=new int[1];GLES20.glGenTextures(1,textures,0);GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,textures[0]);
             GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,GLES20.GL_TEXTURE_MIN_FILTER,GLES20.GL_LINEAR);GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,GLES20.GL_TEXTURE_MAG_FILTER,GLES20.GL_LINEAR);
             GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,GLES20.GL_TEXTURE_WRAP_S,GLES20.GL_CLAMP_TO_EDGE);GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,GLES20.GL_TEXTURE_WRAP_T,GLES20.GL_CLAMP_TO_EDGE);
-            texture=new SurfaceTexture(textures[0]);texture.setDefaultBufferSize(width,height);AtomicBoolean ready=new AtomicBoolean();texture.setOnFrameAvailableListener(t->ready.set(true),main);input=new Surface(texture);
+            texture=new SurfaceTexture(textures[0]);texture.setDefaultBufferSize(width,height);AtomicBoolean ready=new AtomicBoolean();texture.setOnFrameAvailableListener(t->{ready.set(true);renderWake.signal();},main);input=new Surface(texture);
             long start=SystemClock.uptimeMillis();
             mirror=(VirtualDisplay)DisplayManager.class.getMethod("createVirtualDisplay",String.class,int.class,int.class,int.class,Surface.class).invoke(null,"TabFold-live-gpu-preview",width,height,0,input);
             FloatBuffer vertices=ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer();vertices.put(new float[]{-1,-1,1,-1,-1,1,1,1}).position(0);
@@ -192,33 +213,39 @@ public final class LiveMirrorWindowProbe {
             io.github.sixzleo.tabfold.projection.CoverLayoutReady coverLayout=new io.github.sixzleo.tabfold.projection.CoverLayoutReady();
             float previousEntrance=0;
             boolean wasHeld=false,returnComplete=false;
+            RenderIdleGate idleGate=new RenderIdleGate();boolean sourceAttached=true;
+            RenderDrawGate drawGate=new RenderDrawGate();int reusedFrames=0,lastReused=0;long lastPushes=frameCache.pushes();
+            int pyramidUpdates=0,telemetryPolls=0,lastFrames=0,lastSources=0,lastPyramids=0,lastPolls=0;
+            long reportAt=SystemClock.uptimeMillis(),captureCheckAt=0;
+            java.io.File captureRequest=new java.io.File("/data/local/tmp/tabfold-live.capture");
             while(!stopped&&(continuous||SystemClock.uptimeMillis()-start<durationMs)){
                 long now=SystemClock.uptimeMillis();
+                long observedWake=renderWake.version();
+                if(now-reportAt>=10000){
+                    System.out.println("PERF windowMs="+(now-reportAt)+" presents="+(frames-lastFrames)+" sourceFrames="+(sourceFrames-lastSources)+" pyramids="+(pyramidUpdates-lastPyramids)+" polls="+(telemetryPolls-lastPolls)+" pushes="+(frameCache.pushes()-lastPushes)+" reused="+(reusedFrames-lastReused)+" captureAttached="+sourceAttached);
+                    lastPushes=frameCache.pushes();lastReused=reusedFrames;
+                    reportAt=now;lastFrames=frames;lastSources=sourceFrames;lastPyramids=pyramidUpdates;lastPolls=telemetryPolls;
+                }
+                boolean captureNow=false;
+                if(continuous&&now>=captureCheckAt){captureCheckAt=now+250;captureNow=captureRequest.exists()&&captureRequest.delete();}
                 String revealRequest=null;
                 if(continuous)renew();
                 if(foldMode){
-                    if(now>=pollAt){long phaseAt=SystemClock.uptimeMillis();geometry=call("mirror-frame",null);pollAt=now+12;logSlowPhase("telemetry",phaseAt);}
+                    if(pushedFrames){
+                        if(now>=pollAt||frameCache.needsFull()){
+                            long phaseAt=SystemClock.uptimeMillis();frameCache.accept(call("mirror-frame",null),false);
+                            telemetryPolls++;pollAt=now+1000;logSlowPhase("telemetry",phaseAt);
+                        }
+                        geometry=frameCache.snapshot();
+                    }else if(now>=pollAt){long phaseAt=SystemClock.uptimeMillis();geometry=call("mirror-frame",null);telemetryPolls++;pollAt=now+12;logSlowPhase("telemetry",phaseAt);}
                     if(geometry==null||!geometry.getBoolean("alive")||!geometry.getBoolean("allowed"))break;
                 }
                 boolean sourceChanged=ready.getAndSet(false);
-                if(sourceChanged){
-                    if(foldMode)GLES20.glActiveTexture(GLES20.GL_TEXTURE7);
-                    long phaseAt=SystemClock.uptimeMillis();
-                    texture.updateTexImage();texture.getTransformMatrix(matrix);hasTexture=true;sourceFrames++;
-                    logSlowPhase("source-frame",phaseAt);
-                }
-                if(!hasTexture){Thread.sleep(2);continue;}
                 if(foldMode){
                     boolean inner=geometry.getBoolean("inner");int rotation=geometry.getInt("rotation"),sw=geometry.getInt("screenWidth"),sh=geometry.getInt("screenHeight");
                     if(sw<=0||sh<=0)break;
                     int turn=io.github.sixzleo.tabfold.projection.ProjectionMath.turn(inner,rotation);
                     String sourceGeometry=sw+"x"+sh+":"+turn;
-                    if(sourceChanged||!sourceGeometry.equals(pyramidGeometry)){
-                        long phaseAt=SystemClock.uptimeMillis();
-                        pyramid.update(textures[0],matrix,sw,sh,turn);pyramid.bind(program,width,height);
-                        logSlowPhase("blur-pyramid",phaseAt);
-                        pyramidGeometry=sourceGeometry;
-                    }
                     float angle=geometry.getFloat("angle",Float.NaN);if(!Float.isFinite(angle))break;
                     boolean fullyOpened=geometry.getBoolean("fullyOpened");
                     boolean poseBlocked=geometry.getBoolean("projectionBlocked");
@@ -265,29 +292,79 @@ public final class LiveMirrorWindowProbe {
                     float motion=io.github.sixzleo.tabfold.projection.ProjectionMath.onsetMotion(endpoint,entry)*amount;
                     tilt*=motion;
                     float opacity=waitingForCover?0:io.github.sixzleo.tabfold.projection.ProjectionMath.onsetOpacity(endpoint)*FoldReturnMotion.coverage(amount);
-                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"tilt"),(float)Math.toRadians(tilt));
-                    // Enter from the actual unshifted desktop, then follow linearly.
+                    boolean idle=idleGate.update(now,opacity>0,geometry.getBoolean("screenFadeActive"),coverToken,sceneChanged);
+                    if(idle){
+                        // One transparent buffer removes the effect. No shader,
+                        // blur pyramid or repeat presents are needed while clear.
+                        if(idleGate.clearFrame||captureNow){
+                            drawGate.reset();
+                            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER,0);
+                            GLES20.glClearColor(0,0,0,0);GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+                            if(captureNow){saveFrame(width,height);System.out.println("CAPTURED_GPU_FRAME "+previousGeometry+" angle="+eased+" idle=true");}
+                            if(!EGL14.eglSwapBuffers(display,window))throw new IllegalStateException("idle clear swap");
+                            frames++;
+                        }
+                        if(sourceAttached&&idleGate.detach(now)){
+                            mirror.setSurface(null);sourceAttached=false;
+                            System.out.println("CAPTURE_PAUSE angle="+angle+" held="+held);
+                        }
+                        // A shell-to-app pose change wakes this wait immediately.
+                        // The timeout only maintains the lease and catches missed signals.
+                        renderWake.await(observedWake,sourceAttached||!wakeNotifications?20:250);
+                        if(!pushedFrames)pollAt=0;continue;
+                    }
+                    if(!sourceAttached){
+                        // Drain the old queue, then wait for fresh content from
+                        // the reattached display before revealing the projection.
+                        GLES20.glActiveTexture(GLES20.GL_TEXTURE7);texture.updateTexImage();
+                        ready.set(false);sourceChanged=false;hasTexture=false;
+                        mirror.setSurface(input);sourceAttached=true;
+                        System.out.println("CAPTURE_RESUME angle="+angle);
+                    }
+                    if(sourceChanged){
+                        GLES20.glActiveTexture(GLES20.GL_TEXTURE7);
+                        long phaseAt=SystemClock.uptimeMillis();
+                        texture.updateTexImage();texture.getTransformMatrix(matrix);hasTexture=true;sourceFrames++;
+                        logSlowPhase("source-frame",phaseAt);
+                    }
+                    if(!hasTexture){renderWake.await(observedWake,8);continue;}
                     float crop=io.github.sixzleo.tabfold.projection.ProjectionMath.cropFraction(eased,inner,geometry.getInt("stretchPercent",io.github.sixzleo.tabfold.projection.ProjectionMath.DEFAULT_STRETCH_PERCENT))*motion;
-                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"crop"),crop);
-                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"inner"),inner?1:0);
-                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"turn"),inner?(rotation+1)%4:rotation);
-                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"opacity"),opacity);
-                    float strength=geometry.getFloat("blurStrength",1f);
-                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"blurStrength"),Float.isFinite(strength)?Math.max(0,Math.min(2,strength)):1f);
-                    GLES20.glUniform2f(GLES20.glGetUniformLocation(program,"screen"),sw,sh);
+                    float strength=geometry.getFloat("blurStrength",1f);strength=Float.isFinite(strength)?Math.max(0,Math.min(2,strength)):1;
                     float darkness=io.github.sixzleo.tabfold.projection.ScreenFade.sample(now,geometry.getInt("screenFadeMode"),
                         geometry.getLong("screenFadeAt"),geometry.getFloat("screenDarkness"),geometry.getFloat("screenFadeFrom"));
-                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"screenDarkness"),darkness);
-                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"screenFadeActive"),geometry.getBoolean("screenFadeActive")?1:0);
+                    boolean fade=geometry.getBoolean("screenFadeActive");
+                    if(!drawGate.draw(sourceChanged,sceneChanged||captureNow||revealRequest!=null,sw,sh,rotation,inner,fade,tilt,crop,opacity,darkness,strength)){
+                        reusedFrames++;renderWake.await(observedWake,8);continue;
+                    }
+                    if(sourceChanged||!sourceGeometry.equals(pyramidGeometry)){
+                        long phaseAt=SystemClock.uptimeMillis();
+                        pyramid.update(textures[0],matrix,sw,sh,turn);pyramid.bind(program,width,height);pyramidUpdates++;
+                        logSlowPhase("blur-pyramid",phaseAt);
+                        pyramidGeometry=sourceGeometry;
+                    }
+                    if(drawGate.parametersChanged){
+                    GLES20.glUniform1f(uTilt,(float)Math.toRadians(tilt));
+                    // Enter from the actual unshifted desktop, then follow linearly.
+                    GLES20.glUniform1f(uCrop,crop);
+                    GLES20.glUniform1f(uInner,inner?1:0);
+                    GLES20.glUniform1f(uTurn,inner?(rotation+1)%4:rotation);
+                    GLES20.glUniform1f(uOpacity,opacity);
+                    GLES20.glUniform1f(uStrength,strength);
+                    GLES20.glUniform2f(uScreen,sw,sh);
+                    GLES20.glUniform1f(uDarkness,darkness);
+                    GLES20.glUniform1f(uFade,fade?1:0);
+                    }
                 }else{
+                    if(sourceChanged){texture.updateTexImage();texture.getTransformMatrix(matrix);hasTexture=true;sourceFrames++;}
+                    if(!hasTexture){Thread.sleep(2);continue;}
                     float angle=(float)(.5-.5*Math.cos((now-start)/10000.0*Math.PI*2))*.65f;
-                    GLES20.glUniform1f(GLES20.glGetUniformLocation(program,"tilt"),angle);
+                    GLES20.glUniform1f(uTilt,angle);
                 }
-                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program,"tex"),1,false,matrix,0);
+                GLES20.glUniformMatrix4fv(uTex,1,false,matrix,0);
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
-                if(continuous){java.io.File request=new java.io.File("/data/local/tmp/tabfold-live.capture");if(request.exists()&&request.delete()){
+                if(captureNow){
                     saveFrame(width,height);System.out.println("CAPTURED_GPU_FRAME "+previousGeometry+" angle="+eased);
-                }}
+                }
                 if(!foldMode&&!saved&&SystemClock.uptimeMillis()-start>3000){saveFrame(width,height);saved=true;}
                 long swapAt=SystemClock.uptimeMillis();
                 if(!EGL14.eglSwapBuffers(display,window))throw new IllegalStateException("swap buffers");

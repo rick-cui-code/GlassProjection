@@ -12,33 +12,101 @@ final class FoldPose {
     // and folding on this device; never decode this field on other devices.
     final int postureStatus;
     final float rawAngle;
+    // lhasa's continuous digital Hall sensor: -2 unavailable, -1 pending,
+    // 0 contact, 1 separated. Unlike fold_status, this is refreshed at 50 Hz.
+    final int directContactStatus;
+    private final long directContactAt;
     private final boolean flatLatched;
+    // Sensor timestamps share Android's elapsed-realtime nanosecond clock.
+    // Zero means no observation/latch. Keep stream ordering separate: a queued
+    // fold event must not undo a newer hinge endpoint, or vice versa.
+    private final long angleAt,foldAt,closedAt;
     FoldPose(boolean physicalSensor){this(physicalSensor,false);}
-    FoldPose(boolean physicalSensor,boolean contactSupported){this(Float.NaN,physicalSensor?-1:-2,physicalSensor&&contactSupported?-1:-2,physicalSensor&&contactSupported?-1:-2,false);}
-    private FoldPose(float rawAngle,int foldStatus,int contactStatus,int postureStatus,boolean wasFlat){
+    FoldPose(boolean physicalSensor,boolean contactSupported){this(physicalSensor,contactSupported,false);}
+    FoldPose(boolean physicalSensor,boolean contactSupported,boolean directContactSupported){this(Float.NaN,physicalSensor?-1:-2,physicalSensor&&contactSupported?-1:-2,physicalSensor&&contactSupported?-1:-2,false,0,0,0,contactSupported&&directContactSupported?-1:-2,0);}
+    private FoldPose(float rawAngle,int foldStatus,int contactStatus,int postureStatus,boolean wasFlat,long angleAt,long foldAt,long closedAt,int directContactStatus,long directContactAt){
         this.rawAngle=rawAngle;this.foldStatus=foldStatus;this.contactStatus=contactStatus;this.postureStatus=postureStatus;
+        this.angleAt=angleAt;this.foldAt=foldAt;this.closedAt=closedAt;
+        this.directContactStatus=directContactStatus;this.directContactAt=directContactAt;
         // OPENED can arrive before the hinge has reached the clear endpoint.
         // Follow the hinge until BOTH signals agree, then ignore angle-only tilt.
         flatLatched=!closed()&&postureStatus==3&&(wasFlat||Float.isFinite(rawAngle)&&rawAngle>=175);
     }
-    FoldPose withAngle(float angle){
-        return Float.isFinite(angle)?new FoldPose(angle,foldStatus,contactStatus,postureStatus,flatLatched):this;
+    private long nextAt(){return Math.max(Math.max(angleAt,foldAt),directContactAt)+1;}
+    FoldPose withAngle(float angle){return withAngle(angle,nextAt());}
+    FoldPose withAngle(float angle,long at){
+        if(!Float.isFinite(angle)||angle<0||angle>180||at<=angleAt)return this;
+        long closure=closedAt;
+        // The vendor contact field can stay "separated" for minutes after
+        // closure. Reaching the clear endpoint in the folded posture closes
+        // that gap, without treating the entire coarse CLOSED range as shut.
+        if(directContactStatus==-2&&contactStatus>=0&&foldStatus==1&&postureStatus==0&&angle<=1&&at>=foldAt)closure=at;
+        return new FoldPose(angle,foldStatus,contactStatus,postureStatus,flatLatched,at,foldAt,closure,directContactStatus,directContactAt);
     }
     FoldPose withFoldStatus(float status){
-        // This vendor flag is binary. Never interpret an unknown/invalid value as open.
-        if(foldStatus==-2||(status!=0&&status!=1))return this;
-        return new FoldPose(rawAngle,(int)status,contactStatus,postureStatus,flatLatched);
+        return withFoldEvent(new float[]{status});
     }
-    FoldPose withFoldEvent(float[] values){
-        if(values==null||values.length==0)return this;
-        FoldPose next=withFoldStatus(values[0]);
-        if(contactStatus==-2||values.length<11)return next;
-        int contact=values[2]==0||values[2]==1?(int)values[2]:contactStatus;
-        float posture=values[4];
-        int state=posture==0||posture==1||posture==2||posture==3?(int)posture:postureStatus;
-        return new FoldPose(rawAngle,next.foldStatus,contact,state,flatLatched);
+    FoldPose withFoldEvent(float[] values){return withFoldEvent(values,nextAt());}
+    FoldPose withFoldEvent(float[] values,long at){
+        if(foldStatus==-2||values==null||values.length==0||at<=foldAt)return this;
+        boolean validFold=values[0]==0||values[0]==1;
+        int fold=validFold?(int)values[0]:foldStatus;
+        int contact=contactStatus,state=postureStatus;
+        long closure=closedAt;
+        if(contactStatus!=-2&&values.length>=11){
+            boolean validContact=values[2]==0||values[2]==1;
+            boolean validPosture=values[4]==0||values[4]==1||values[4]==2||values[4]==3;
+            if(validContact)contact=(int)values[2];
+            if(validPosture)state=(int)values[4];
+            if(directContactStatus==-2){
+            if(validContact&&contact==0)closure=Math.max(closure,at);
+            // A cached contact=1 or angle-only movement cannot unlock. Require
+            // a fresh complete separation event measured after the endpoint.
+            // Its angle must also be outside the <=1 degree clear endpoint.
+            else if(validContact&&contact==1&&validFold&&validPosture&&at>closure
+                    &&Float.isFinite(values[1])&&values[1]>1&&values[1]<=180)closure=0;
+            // Hinge-first delivery of closure: use the newer endpoint, not the
+            // older contact snapshot. This also handles service startup.
+            if(contact>=0&&fold==1&&state==0&&Float.isFinite(rawAngle)
+                    &&rawAngle<=1&&angleAt>=at)closure=Math.max(closure,angleAt);
+            }
+        }
+        return new FoldPose(rawAngle,fold,contact,state,flatLatched,angleAt,at,closure,directContactStatus,directContactAt);
     }
-    private boolean closed(){return contactStatus>=0?contactStatus==0:foldStatus==-1||foldStatus==1;}
+    FoldPose withDirectContactEvent(float[] values,long at){
+        if(directContactStatus==-2||values==null||values.length<9||at<=directContactAt)return this;
+        if(values[0]!=0&&values[0]!=1)return this;
+        // The digital switch uses a wide 681/1630 hysteresis: the user-confirmed
+        // small gap still reports CLOSED at |field|~1200. Use the measured
+        // contact threshold with a narrower 10% release margin instead. Captured
+        // full-contact tilt remains above this threshold. Profile: lhasa only.
+        float field=Math.abs(values[4]),contactThreshold=values[6];
+        if(!Float.isFinite(field)||!Float.isFinite(contactThreshold)||contactThreshold<=0
+                ||!Float.isFinite(values[5])||values[5]<0||values[5]>=contactThreshold)return this;
+        int contact=directContactStatus>=0?directContactStatus:(int)values[0];
+        if(field>=contactThreshold)contact=0;
+        else if(field<=contactThreshold*.9f)contact=1;
+        return new FoldPose(rawAngle,foldStatus,contactStatus,postureStatus,flatLatched,
+            angleAt,foldAt,0,contact,at);
+    }
+    FoldPose withDirectContactAvailable(boolean available){
+        if(available==(directContactStatus!=-2))return this;
+        return new FoldPose(rawAngle,foldStatus,contactStatus,postureStatus,flatLatched,
+            angleAt,foldAt,directContactStatus==0?directContactAt:closedAt,available?-1:-2,0);
+    }
+    long directContactAgeMs(long now){return directContactAt==0?Long.MAX_VALUE:Math.max(0,(now-directContactAt)/1000000);}
+    FoldPose expireDirectContact(long now){
+        if(directContactStatus<0||directContactAgeMs(now)<=500)return this;
+        // Never keep rendering from a stale separated sample if the host dies.
+        // A fresh shell sample restores the measured state automatically.
+        return new FoldPose(rawAngle,foldStatus,contactStatus,postureStatus,flatLatched,
+            angleAt,foldAt,0,-1,directContactAt);
+    }
+    boolean closedLatched(){return directContactStatus==-2?closedAt>0:directContactStatus==0;}
+    private boolean closed(){
+        if(directContactStatus!=-2)return directContactStatus!=1;
+        return closedLatched()||(contactStatus>=0?contactStatus==0:foldStatus==-1||foldStatus==1);
+    }
     // Confirmed flat protection, not merely the raw vendor OPENED report.
     boolean fullyOpened(){return flatLatched;}
     boolean blocksProjection(){return closed()||fullyOpened();}

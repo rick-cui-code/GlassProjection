@@ -25,9 +25,9 @@ public final class ScreenFadeTest {
             check(!fade.contentReady(token+1,now+30),"stale completion ignored");
             check(fade.contentReady(token,now+200),"inner fresh frame begins reveal");
             near(fade.darkness(),1);
-            near(ScreenFade.sample(now+290,fade.mode(),fade.phaseStartedAt(),fade.darkness(),fade.cancelFrom()),.5f);
-            fade.update(now+290,open+2,true,true,false);near(fade.darkness(),.5f);
-            fade.update(now+380,open+3,true,true,false);near(fade.darkness(),0);
+            near(ScreenFade.sample(now+260,fade.mode(),fade.phaseStartedAt(),fade.darkness(),fade.cancelFrom()),.5f);
+            fade.update(now+260,open+2,true,true,false);near(fade.darkness(),.5f);
+            fade.update(now+320,open+3,true,true,false);near(fade.darkness(),0);
             check(!fade.active()&&!fade.backing(),"completed reveal releases backing only at clear endpoint");
             // Begin a normal closing gesture from flat, using the independent close threshold.
             now+=500;fade.update(now,180,true,true,false);controller.update(180,true,true);
@@ -44,20 +44,21 @@ public final class ScreenFadeTest {
             fade.update(now+919,close-1,false,true,false);near(fade.darkness(),1);
             fade.update(now+920,close-1,false,true,false);near(fade.darkness(),1);
             check(fade.token()==0,"timeout ends wait by revealing, not a hard cut");
-            fade.update(now+1010,close-1,false,true,false);near(fade.darkness(),.5f);
-            fade.update(now+1100,close-1,false,true,false);near(fade.darkness(),0);
+            fade.update(now+980,close-1,false,true,false);near(fade.darkness(),.5f);
+            fade.update(now+1040,close-1,false,true,false);near(fade.darkness(),0);
         }
         ScreenFade reverse=new ScreenFade();reverse.update(0,0,false,true,false);
-        reverse.update(100,54,false,true,false);near(reverse.darkness(),.5f);
-        reverse.update(120,51,false,true,false);near(reverse.darkness(),.5f);
-        reverse.update(180,51,false,true,false);near(reverse.darkness(),.25f);
-        reverse.update(240,51,false,true,false);near(reverse.darkness(),0);
+        reverse.update(100,56,false,true,false);near(reverse.darkness(),.5f);
+        reverse.update(120,53,false,true,false);near(reverse.darkness(),.5f);
+        near(ScreenFade.sample(160,reverse.mode(),reverse.phaseStartedAt(),reverse.darkness(),reverse.cancelFrom()),.25f);
+        reverse.update(160,53,false,true,false);near(reverse.darkness(),.25f);
+        reverse.update(200,53,false,true,false);near(reverse.darkness(),0);
         ScreenFade hold=new ScreenFade();hold.update(0,0,false,true,false);
-        hold.update(100,54,false,true,false);hold.update(110,54,false,true,true);
-        hold.update(230,54,false,true,true);near(hold.darkness(),0);
-        hold.update(240,54,false,false,false);check(!hold.active()&&!hold.backing(),"scope/sleep cancels all layers");
+        hold.update(100,56,false,true,false);hold.update(110,56,false,true,true);
+        hold.update(190,56,false,true,true);near(hold.darkness(),0);
+        hold.update(200,56,false,false,false);check(!hold.active()&&!hold.backing(),"scope/sleep cancels all layers");
         ScreenFade slow=new ScreenFade();slow.update(0,0,false,true,false);
-        slow.update(5000,54,false,true,false);slow.update(10000,54,false,true,false);
+        slow.update(5000,56,false,true,false);slow.update(10000,56,false,true,false);
         near(slow.darkness(),.5f);check(slow.token()==0,"slow movement before threshold must not time out");
         ScreenFade missing=new ScreenFade();missing.update(0,0,false,true,false);
         missing.update(100,61,false,true,false);missing.update(1000,61,false,true,false);

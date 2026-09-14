@@ -1,6 +1,9 @@
 package io.github.sixzleo.tabfold.projection;
 import android.content.Context;
 import android.content.SharedPreferences;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
 /** One in-memory settings snapshot shared by UI and telemetry. */
 final class AnimationSettings {
@@ -9,6 +12,7 @@ final class AnimationSettings {
     static volatile boolean globalEnabled;
     static volatile int holdSeconds=3;
     static volatile boolean swipeRestore;
+    static volatile Set<String> blacklistedApps=Collections.emptySet();
     private static SharedPreferences prefs;
     static synchronized void init(Context context) {
         if(prefs!=null)return;
@@ -21,6 +25,7 @@ final class AnimationSettings {
         globalEnabled=prefs.getBoolean("global",false);
         holdSeconds=clamp(prefs.getInt("hold_seconds",3),1,10);
         swipeRestore=prefs.getBoolean("swipe_restore",false);
+        blacklistedApps=Collections.unmodifiableSet(new HashSet<>(prefs.getStringSet("blacklisted_apps",Collections.emptySet())));
     }
     static int clamp(int v,int min,int max){return Math.max(min,Math.min(max,v));}
     static void blur(int v){blurPercent=clamp(v,0,200);prefs.edit().putInt("blur",blurPercent).apply();}
@@ -31,5 +36,12 @@ final class AnimationSettings {
     static void global(boolean value){globalEnabled=value;prefs.edit().putBoolean("global",value).apply();}
     static void hold(int value){holdSeconds=clamp(value,1,10);prefs.edit().putInt("hold_seconds",holdSeconds).apply();}
     static void swipe(boolean value){swipeRestore=value;prefs.edit().putBoolean("swipe_restore",value).apply();}
+    static void blacklist(String packageName,boolean blocked){
+        Set<String> next=new HashSet<>(blacklistedApps);
+        if(blocked)next.add(packageName);else next.remove(packageName);
+        blacklistedApps=Collections.unmodifiableSet(next);
+        prefs.edit().putStringSet("blacklisted_apps",next).apply();
+        ProjectionService.refreshAppScope();
+    }
     static void reset(){blur(100);stretch(ProjectionMath.DEFAULT_STRETCH_PERCENT);open(60);close(120);start(1);hold(3);swipe(false);}
 }

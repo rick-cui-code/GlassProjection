@@ -61,8 +61,9 @@ public final class ProjectionAngleMotionTest {
             now+=100;
             pose=pose.withAngle(raw).withFoldEvent(opened);
             check(!pose.fullyOpened(),"early OPENED must not start a timed finish");
-            expected=ProjectionMath.followAngle(expected,raw,100,true);
-            near(integrated.update(now,pose.angle(),true,pose.blocksProjection(),pose.fullyOpened(),false),expected);
+            float followed=integrated.update(now,pose.angle(),true,pose.blocksProjection(),pose.fullyOpened(),false);
+            check(followed>=expected&&followed<=raw,"adaptive follower must approach the real hinge without an early flat return");
+            expected=followed;
         }
         pose=pose.withAngle(175);
         check(pose.fullyOpened(),"both signals must arm protection");
