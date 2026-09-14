@@ -35,7 +35,16 @@ public final class UpdateSecurityTest {
             File reference=root.resolve("reference").toFile();Files.write(reference.toPath(),good);String hash=UpdateTrust.sha256(reference);
             File output=root.resolve("download").toFile();String url=UpdateTrust.REPO+"/releases/download/v1/GlassProjection-1.apk";
             mode=0;attempts=0;seen.clear();
-            new UpdateTransport().download(url,output,good.length,100,file->UpdateTrust.checkFile(file,good.length,hash),message->{});
+            List<Long> progressBytes=new ArrayList<>();
+            new UpdateTransport().download(url,output,good.length,100,file->UpdateTrust.checkFile(file,good.length,hash),new UpdateTransport.Progress(){
+                public void show(String message){}
+                public void bytes(long downloaded,long total){
+                    check(total==good.length&&downloaded>=0&&downloaded<=total,"progress reports bounded real byte counts");
+                    progressBytes.add(downloaded);
+                }
+            });
+            check(progressBytes.stream().filter(n->n==0).count()==3,"each mirror restarts progress at zero");
+            check(progressBytes.get(progressBytes.size()-1)==good.length,"fast completed download reports final 100 percent");
             check(attempts==3&&seen.get(0).equals(url)&&seen.get(1).startsWith("https://ghfast.top/")&&seen.get(2).startsWith("https://gh-proxy.com/"),"failover order and reject corrupt mirror");
             check(Arrays.equals(Files.readAllBytes(output.toPath()),good),"only verified content accepted");
             mode=1;attempts=0;rejects(()->new UpdateTransport().download(url,output,-1,100,file->{},message->{}),"all sources fail");
@@ -46,6 +55,6 @@ public final class UpdateSecurityTest {
             mode=3;rejects(()->new UpdateTransport().download(url,output,-1,100,file->{},message->{}),"HTTPS downgrade");
             UpdateTransport cancelled=new UpdateTransport();cancelled.cancel();rejects(()->cancelled.download(url,output,-1,100,file->{},message->{}),"cancelled download");
         }finally{try(java.util.stream.Stream<Path> paths=Files.walk(root)){for(Path path:paths.sorted(Comparator.reverseOrder()).toList())Files.deleteIfExists(path);}}
-        System.out.println("PASS: numeric versions, repository confinement, corrupt mirror failover, all-source failure, size/truncation, HTTPS and cancellation");
+        System.out.println("PASS: numeric versions, repository confinement, corrupt mirror failover, all-source failure, byte progress/reset/completion, size/truncation, HTTPS and cancellation");
     }
 }

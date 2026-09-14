@@ -5,7 +5,10 @@ import java.net.*;
 
 /** Sequential bounded attempts, with validation inside each attempt before accepting a mirror. */
 public final class UpdateTransport {
-    public interface Progress {void show(String message);}
+    public interface Progress {
+        void show(String message);
+        default void bytes(long downloaded,long total){show(total>0?"正在下载 · "+(downloaded*100/total)+"%":"正在读取更新说明");}
+    }
     public interface Verify {void check(File file)throws Exception;}
     private volatile boolean cancelled;
     private volatile HttpURLConnection connection;
@@ -16,10 +19,11 @@ public final class UpdateTransport {
         Exception last=null;
         for(int i=0;i<UpdateTrust.SOURCES.length;i++){
             checkCancelled();progress.show("正在连接 "+UpdateTrust.SOURCE_NAMES[i]+"（"+(i+1)+"/"+UpdateTrust.SOURCES.length+"）");
+            if(expected>0)progress.bytes(0,expected);
             File pending=new File(destination.getPath()+".partial");
             try{
                 fetch(UpdateTrust.SOURCES[i]+original,pending,expected,maximum,progress);
-                checkCancelled();verify.check(pending);checkCancelled();
+                checkCancelled();if(expected>0)progress.show("下载完成，正在校验 APK");verify.check(pending);checkCancelled();
                 java.nio.file.Files.move(pending.toPath(),destination.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 return destination;
             }catch(Exception failed){checkCancelled();last=failed;}
@@ -42,6 +46,7 @@ public final class UpdateTransport {
                 if(code!=200)throw new IOException("HTTP "+code);
                 long length=current.getContentLengthLong();
                 if(length>maximum||expected>0&&length>=0&&length!=expected)throw new IOException("下载长度不符");
+                progress.show(expected>0?"正在下载 APK":"正在读取更新说明");
                 long total=0,lastProgress=0;
                 try(InputStream in=current.getInputStream();FileOutputStream out=new FileOutputStream(target)){
                     byte[] buffer=new byte[32768];int n;
@@ -54,12 +59,13 @@ public final class UpdateTransport {
                             throw new IOException("当前源持续低速，尝试其他下载源");
                         out.write(buffer,0,n);
                         long now=System.nanoTime();if(now-lastProgress>500_000_000L){
-                            progress.show(expected>0?"正在下载 · "+(total*100/expected)+"%":"正在读取更新说明");lastProgress=now;
+                            if(expected>0)progress.bytes(total,expected);lastProgress=now;
                         }
                     }
                     out.getFD().sync();
                 }
-                if(expected>0&&total!=expected)throw new IOException("下载不完整");return;
+                if(expected>0&&total!=expected)throw new IOException("下载不完整");
+                if(expected>0)progress.bytes(total,expected);return;
             }finally{current.disconnect();if(connection==current)connection=null;}
         }
         throw new IOException("重定向次数过多");

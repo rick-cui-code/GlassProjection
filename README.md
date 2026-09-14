@@ -4,7 +4,9 @@
 
 [下载 APK](https://github.com/spideytznn/GlassProjection/releases/latest) · [使用教程](docs/USAGE.zh-CN.md) · [构建与原理](docs/DEVELOPMENT.zh-CN.md) · [开源许可](LICENSE)
 
-**当前版本：0.4.28。优化开合跟随和空闲功耗，新增带图标的应用黑名单与应用内 APK 更新；无需安装 Shizuku，无需 root 或电脑持续连接。**
+**当前版本：0.4.29。优化开合跟随和空闲功耗，新增带图标的应用黑名单与应用内 APK 更新；无需安装 Shizuku，无需 root 或电脑持续连接。**
+
+v0.4.29 在下载按钮下新增百分比与进度条，下载期间按钮置灰且不可重复点击。详见 [v0.4.29 更新说明](docs/RELEASE-v0.4.29.md)。升级到此版本后，新的下载界面生效。
 
 v0.4.28 汇总小角度磁场判断、闭合倾斜保护、空闲渲染优化和更快的切屏渐变。默认保留系统小窗应用配对，通知配对位于「更多配对方式」，删除悬浮窗配对；管理无障碍可在适配的小米系统直接进入「已下载的应用」。详细变更与验证范围见 [v0.4.28 更新说明](docs/RELEASE-v0.4.28.md)。
 
@@ -37,7 +39,7 @@ v0.4.28 汇总小角度磁场判断、闭合倾斜保护、空闲渲染优化和
 
 ## 安装与使用
 
-1. 升级用户先在旧版点 **暂停动画**，确认本应用无障碍已关闭。从 [Releases](https://github.com/spideytznn/GlassProjection/releases) 下载 `GlassProjection-0.4.28.apk`；按上方签名说明决定覆盖安装或记录参数后重装。
+1. 升级用户先在旧版点 **暂停动画**，确认本应用无障碍已关闭。从 [Releases](https://github.com/spideytznn/GlassProjection/releases) 下载 `GlassProjection-0.4.29.apk`；按上方签名说明决定覆盖安装或记录参数后重装。
 2. 覆盖升级后重新检查无障碍服务。若早期版本遗留锁屏 / 桌面投影层，重启手机后再连接助手。
 3. 若没有开发者选项，小米进入 **设置 → 我的设备 → 连续点击 OS 版本**，直到提示进入开发者模式。开启无线调试；小米还需要单独开启 **USB 调试（安全设置）**。
 4. 打开 **玻璃投影**，点 **配对**。没有记录时会打开配对小窗并跳到无线调试；在系统中选择使用配对码配对设备，把 6 位码填入小窗。应用自动连接并启动助手。已有有效记录时会提示无需重复配对。此前仅在 Shizuku 中配对过的用户，仍需为玻璃投影完成一次独立配对。
@@ -101,7 +103,7 @@ projection-lab/build/outputs/apk/debug/projection-lab-debug.apk
 
 仓库包含两份经过实机验证的助手 DEX 及其完整 Java 源码。修改 `tools/helpers/` 后，须先运行 `python tools/build_helpers.py` 更新内置 DEX，再构建 APK。`python tools/build_helpers.py --check` 可以校验源码重建结果；`python tools/test_models.py` 运行几何、场景和切屏方向测试。
 
-**v0.4.28 Release 附件是基于 `main` 的 debug 构建 APK，与 v0.4.27 测试版同签名，与 GitHub v0.4.11 / v0.4.16 / v0.4.17 不同。** 附件提供 SHA-256 校验值。自己构建的 debug APK 通常使用不同密钥，可能无法直接覆盖安装 Release。仓库不提供私钥或本机调试密钥。历史附件及签名说明仍见[构建说明](docs/DEVELOPMENT.zh-CN.md)。
+**v0.4.29 Release 附件是基于 `main` 的 debug 构建 APK，与 v0.4.27 测试版同签名，与 GitHub v0.4.11 / v0.4.16 / v0.4.17 不同。** 附件提供 SHA-256 校验值。自己构建的 debug APK 通常使用不同密钥，可能无法直接覆盖安装 Release。仓库不提供私钥或本机调试密钥。历史附件及签名说明仍见[构建说明](docs/DEVELOPMENT.zh-CN.md)。
 
 ## 隐私与权限
 

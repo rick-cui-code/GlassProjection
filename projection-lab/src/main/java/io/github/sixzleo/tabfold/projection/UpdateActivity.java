@@ -21,7 +21,15 @@ public final class UpdateActivity extends Activity {
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private UpdateTransport transfer;
     private ApkRelease release;
-    private TextView status,detail;
+    private TextView status,detail,downloadPercent;
+    private LinearLayout downloadProgress;
+    private ProgressBar downloadBar;
+    private final UpdateTransport.Progress downloadListener=new UpdateTransport.Progress(){
+        public void show(String message){progress(message);}
+        public void bytes(long received,long total){runOnUiThread(()->{
+            if(!isDestroyed())showDownloadProgress(received,total);
+        });}
+    };
     private Button check,download,cancel;
     private File folder,downloaded;
     private boolean busy,waitingPermission;
@@ -39,21 +47,37 @@ public final class UpdateActivity extends Activity {
         detail=text("下载会依次尝试 GitHub、ghfast.top、gh-proxy.com、ghproxy.net。全部失败时可打开或复制 Release 链接。",14,MUTED);page.addView(detail);
         check=button(page,"检查更新",this::check);
         download=button(page,"下载新版 APK",this::download);download.setVisibility(View.GONE);
+        downloadProgress=new LinearLayout(this);downloadProgress.setOrientation(LinearLayout.VERTICAL);
+        downloadProgress.setPadding(0,dp(8),0,dp(4));downloadProgress.setVisibility(View.GONE);
+        page.addView(downloadProgress,new LinearLayout.LayoutParams(-1,-2));
+        downloadPercent=text("",13,MUTED);downloadPercent.setGravity(Gravity.END);
+        downloadProgress.addView(downloadPercent,new LinearLayout.LayoutParams(-1,-2));
+        downloadBar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        downloadBar.setMax(100);downloadBar.setProgressTintList(ColorStateList.valueOf(ACCENT));
+        downloadBar.setProgressBackgroundTintList(ColorStateList.valueOf(0xff34474b));
+        LinearLayout.LayoutParams barLayout=new LinearLayout.LayoutParams(-1,dp(8));barLayout.topMargin=dp(6);
+        downloadProgress.addView(downloadBar,barLayout);
         cancel=button(page,"取消下载",()->{if(transfer!=null)transfer.cancel();});cancel.setVisibility(View.GONE);
         button(page,"打开 GitHub Release",()->openRelease(releaseUrl));
         page.addView(text("仅在本页检查和下载。下载完成后由系统确认安装；安装前暂停动画，完成后请重新开启无障碍服务。",12,MUTED));
         if(saved!=null)try{
             String tag=saved.getString("releaseTag");if(tag!=null){ApkRelease cached=new ApkRelease(Files.readAllBytes(new File(folder,"release.json").toPath()));
                 if(tag.equals(cached.tag)){release=cached;releaseUrl=release.page;detail.setText(release.notes);download.setVisibility(View.VISIBLE);}}
-            File apk=new File(folder,"verified.apk");if(saved.getBoolean("downloaded")&&release!=null&&apk.isFile()){downloaded=apk;download.setText("安装已下载 APK");}
+            File apk=new File(folder,"verified.apk");if(saved.getBoolean("downloaded")&&release!=null&&apk.isFile()){downloaded=apk;download.setText("安装已下载 APK");showDownloadProgress(release.size,release.size);}
             waitingPermission=saved.getBoolean("waitingPermission");
         }catch(Exception ignored){}
         scroll.requestApplyInsets();
     }
-    private void setBusy(boolean value){busy=value;check.setEnabled(!value);download.setEnabled(!value);cancel.setVisibility(value&&transfer!=null?View.VISIBLE:View.GONE);}
+    private void setBusy(boolean value){busy=value;check.setEnabled(!value);download.setEnabled(!value);download.setAlpha(value?.55f:1f);cancel.setVisibility(value&&transfer!=null?View.VISIBLE:View.GONE);}
     private void progress(String message){runOnUiThread(()->{if(!isDestroyed())status.setText(message);});}
+    private void showDownloadProgress(long received,long total){
+        int percent=total>0?(int)Math.min(100,Math.max(0,received*100/total)):0;
+        downloadProgress.setVisibility(View.VISIBLE);downloadBar.setProgress(percent);
+        downloadBar.setStateDescription(percent+"%");
+        downloadPercent.setText(String.format(Locale.ROOT,"%d%% · %.1f / %.1f MB",percent,received/1048576.0,total/1048576.0));
+    }
     private void check(){
-        if(busy)return;release=null;downloaded=null;releaseUrl=UpdateTrust.RELEASES;download.setVisibility(View.GONE);
+        if(busy)return;release=null;downloaded=null;releaseUrl=UpdateTrust.RELEASES;download.setVisibility(View.GONE);downloadProgress.setVisibility(View.GONE);
         transfer=new UpdateTransport();setBusy(true);
         worker.execute(()->{
             try{
@@ -71,11 +95,11 @@ public final class UpdateActivity extends Activity {
     }
     private void download(){
         if(busy||release==null)return;if(downloaded!=null){requestInstall();return;}
-        final ApkRelease next=release;transfer=new UpdateTransport();setBusy(true);
+        final ApkRelease next=release;transfer=new UpdateTransport();setBusy(true);showDownloadProgress(0,next.size);
         worker.execute(()->{
             try{
                 File file=transfer.download(next.url,new File(folder,"verified.apk"),next.size,UpdateTrust.MAX_APK,
-                    candidate->verifyApk(candidate,next),this::progress);
+                    candidate->verifyApk(candidate,next),downloadListener);
                 runOnUiThread(()->{if(isDestroyed())return;downloaded=file;setBusy(false);status.setText("APK 已下载，校验通过");download.setText("安装已下载 APK");requestInstall();});
             }catch(Exception error){failed(error);}
         });
@@ -116,7 +140,7 @@ public final class UpdateActivity extends Activity {
         }catch(Exception error){failed(error);}});
     }
     private void failed(Exception error){runOnUiThread(()->{
-        if(isDestroyed())return;setBusy(false);
+        if(isDestroyed())return;setBusy(false);downloadProgress.setVisibility(View.GONE);
         if(error instanceof InterruptedIOException){status.setText("已取消更新");return;}
         status.setText("更新未完成，当前版本保持可用");fallback(error.getMessage(),releaseUrl);
     });}
@@ -128,7 +152,7 @@ public final class UpdateActivity extends Activity {
     }
     private void openRelease(String url){try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(ActivityNotFoundException e){Toast.makeText(this,"未找到浏览器，可复制链接后打开",Toast.LENGTH_LONG).show();}}
     private TextView text(String value,int size,int color){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(color);return t;}
-    private Button button(LinearLayout page,String label,Runnable action){Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextColor(ACCENT);b.setBackgroundTintList(ColorStateList.valueOf(0xff1b272b));b.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(54));p.topMargin=dp(12);page.addView(b,p);return b;}
+    private Button button(LinearLayout page,String label,Runnable action){Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextColor(new ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled},new int[]{}},new int[]{0xff8b9698,ACCENT}));b.setBackgroundTintList(new ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled},new int[]{}},new int[]{0xff252e31,0xff1b272b}));b.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(54));p.topMargin=dp(12);page.addView(b,p);return b;}
     @Override public void onResume(){super.onResume();if(waitingPermission){waitingPermission=false;if(getPackageManager().canRequestPackageInstalls()&&downloaded!=null)requestInstall();}}
     @Override public void onSaveInstanceState(Bundle out){
         out.putBoolean("waitingPermission",waitingPermission);out.putBoolean("downloaded",downloaded!=null);
