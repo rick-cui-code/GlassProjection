@@ -11,16 +11,21 @@ final class DirectHallReader implements SensorEventListener,AutoCloseable {
     private boolean available;
     private volatile Bundle latest;
     DirectHallReader(){
-        if(!"lhasa".equals(Build.DEVICE))return;
+        if(!"lhasa".equals(Build.DEVICE) && !"PLP120".equals(Build.DEVICE))return;
         try{
             Object activityThread=Class.forName("android.app.ActivityThread").getMethod("systemMain").invoke(null);
             Context context=(Context)activityThread.getClass().getMethod("getSystemContext").invoke(activityThread);
             sensors=(SensorManager)context.getSystemService(Context.SENSOR_SERVICE);
             for(Sensor s:sensors.getSensorList(Sensor.TYPE_ALL)){
-                if(!"xiaomi.sensor.dighall".equals(s.getStringType())
-                        ||!"ak0991x Digital Hall Sensor Non-wakeup".equals(s.getName()))continue;
+                // Support Xiaomi lhasa and OPPO Find N6 (PLP120)
+                boolean isXiaomiHall="xiaomi.sensor.dighall".equals(s.getStringType())
+                        &&"ak0991x Digital Hall Sensor Non-wakeup".equals(s.getName());
+                boolean isOppoHall="PLP120".equals(Build.DEVICE)
+                        &&(s.getStringType().toLowerCase().contains("hall")||s.getName().toLowerCase().contains("hall"));
+                if(!isXiaomiHall && !isOppoHall)continue;
                 thread=new HandlerThread("Glass-contact-sensor");thread.start();
                 available=sensors.registerListener(this,s,20000,new Handler(thread.getLooper()));
+                System.out.println("DIRECT_CONTACT sensor: type="+s.getStringType()+" name="+s.getName()+" device="+Build.DEVICE);
                 break;
             }
             System.out.println("DIRECT_CONTACT available="+available+" uid="+android.os.Process.myUid());
