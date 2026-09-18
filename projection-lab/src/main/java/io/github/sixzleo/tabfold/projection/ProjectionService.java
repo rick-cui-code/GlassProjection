@@ -210,11 +210,15 @@ public final class ProjectionService extends AccessibilityService implements Sen
                     &&"fold_status FOLD_STATUS Wakeup".equals(candidate.getName()))physicalFoldSensor=candidate;
             if("lhasa".equals(Build.DEVICE)&&"xiaomi.sensor.dighall".equals(candidate.getStringType())
                     &&"ak0991x Digital Hall Sensor Non-wakeup".equals(candidate.getName()))directContactSensor=candidate;
+            // OPPO Find N6: try generic fold_status sensor
+            if(!"lhasa".equals(Build.DEVICE)&&"PLP120".equals(Build.DEVICE)){
+                if("fold_status".equals(candidate.getStringType())||candidate.getName().toLowerCase().contains("fold"))physicalFoldSensor=candidate;
+            }
         }
         // The coarse flag stays CLOSED until about 31 degrees on lhasa.
         // Only this device's contact and posture fields have been checked
         // against real closure, flat tilt, and folding.
-        boolean contactSupported="lhasa".equals(Build.DEVICE);
+        boolean contactSupported="lhasa".equals(Build.DEVICE) || "PLP120".equals(Build.DEVICE);
         foldPose=new FoldPose(physicalFoldSensor!=null,contactSupported,directContactSensor!=null);
         if(physicalFoldSensor!=null){
             boolean registered=false;
@@ -486,7 +490,7 @@ public final class ProjectionService extends AccessibilityService implements Sen
     public void onAccuracyChanged(Sensor sensor,int accuracy){}
     static void deliverDirectContact(Bundle sample){
         ProjectionService service=instance;
-        if(service==null||!"lhasa".equals(Build.DEVICE))return;
+        if(service==null||(!"lhasa".equals(Build.DEVICE)&&!"PLP120".equals(Build.DEVICE)))return;
         float[] values=sample.getFloatArray("directContactValues");
         final float[] copy=values==null?null:values.clone();
         long at=sample.getLong("directContactAt");boolean available=sample.getBoolean("directContactAvailable");
